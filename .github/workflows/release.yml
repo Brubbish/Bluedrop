@@ -155,6 +155,8 @@ jobs:
         env:
           BUILD_NO: ${{ github.run_number }}
           GH_TOKEN: ${{ github.token }}
+          # no checkout in this job; tell gh which repo to target
+          GH_REPO: ${{ github.repository }}
         run: |
           TAG="v$APP_VERSION-b$BUILD_NO"
           ls -la dist/
