@@ -55,6 +55,9 @@ class BdipSession(
     /** Per-chunk ACK wait; overridable so tests can shorten it. */
     var chunkAckTimeoutMs: Long = 60_000
 
+    /** HELLO exchange timeout; overridable so tests can extend it on slow runners. */
+    var helloTimeoutMs: Long = Bdip.HELLO_TIMEOUT_MS
+
     val isEstablished: Boolean get() = established.isCompleted
 
     // ---------------------------------------------------------------- lifecycle
@@ -121,7 +124,7 @@ class BdipSession(
                 writeChannel.send(FrameCodec.encode(Bdip.TYPE_HELLO, hello.encode()))
                 lastSentAt = System.currentTimeMillis()
             }
-            val peer = withTimeoutOrNull(Bdip.HELLO_TIMEOUT_MS) { pendingHello.receive() }
+            val peer = withTimeoutOrNull(helloTimeoutMs) { pendingHello.receive() }
             if (peer == null || peer.type != Bdip.TYPE_HELLO) {
                 fail("hello timeout")
                 return

@@ -184,9 +184,20 @@ class BluetoothServiceTest {
         // first frame on the wire is our HELLO, then the clipboard text frame;
         // the writer coroutine flushes asynchronously, so wait for both frames
         kotlinx.coroutines.runBlocking {
-            val deadline = System.currentTimeMillis() + 5_000
-            while (System.currentTimeMillis() < deadline && outputStream.size() < 80) {
-                kotlinx.coroutines.delay(10)
+            val deadline = System.currentTimeMillis() + 15_000
+            while (System.currentTimeMillis() < deadline) {
+                val bytes = outputStream.toByteArray()
+                val bothFramesReady = try {
+                    val hello = FrameCodec.read(ByteArrayInputStream(bytes))
+                    val clip = FrameCodec.read(
+                        ByteArrayInputStream(bytes.copyOfRange(Bdip.HEADER_SIZE + hello.payload.size, bytes.size))
+                    )
+                    clip.type == Bdip.TYPE_CLIPBOARD_TEXT
+                } catch (e: Exception) {
+                    false
+                }
+                if (bothFramesReady) break
+                kotlinx.coroutines.delay(20)
             }
         }
         val allFrames = outputStream.toByteArray()

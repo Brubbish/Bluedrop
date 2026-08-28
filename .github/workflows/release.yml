@@ -55,6 +55,13 @@ jobs:
           chmod +x gradlew
           ./gradlew :app:testDebugUnitTest --console=plain
 
+      - name: Upload test results on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-test-results
+          path: android/app/build/test-results/
+
       - name: Build release APKs
         env:
           BUILD_NO: ${{ github.run_number }}
