@@ -3,9 +3,10 @@
 Run from the repo root:  python tools/make_icons.py
 
 Outputs:
-  - app/src/main/res/mipmap-*/ic_launcher*.webp   (legacy + adaptive foreground)
-  - app/src/main/res/AppIcon.png                  (rounded square, README)
-  - app/src/main/ic_launcher-playstore.png        (512 full-bleed square)
+  - android/app/src/main/res/mipmap-*/ic_launcher*.webp (legacy + adaptive foreground)
+  - android/app/src/main/res/AppIcon.png                 (rounded square)
+  - android/app/src/main/ic_launcher-playstore.png       (512 full-bleed square)
+  - windows/Assets/app.ico                               (Windows app + installer icon)
 """
 
 import math
@@ -13,7 +14,8 @@ import os
 from PIL import Image, ImageDraw, ImageFilter
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-RES = os.path.join(REPO, "app", "src", "main", "res")
+RES = os.path.join(REPO, "android", "app", "src", "main", "res")
+ICO = os.path.join(REPO, "windows", "Assets", "app.ico")
 
 SS = 4  # supersampling factor
 
@@ -199,8 +201,21 @@ def main():
 
     ps = vertical_gradient((512, 512), BG_TOP, BG_BOTTOM).convert("RGBA")
     ps.alpha_composite(draw_drop((512, 512), (512 * 0.24, 512 * 0.12, 512 * 0.76, 512 * 0.86)))
-    ps.save(os.path.join(REPO, "app", "src", "main", "ic_launcher-playstore.png"), "PNG")
-    print("wrote app/src/main/ic_launcher-playstore.png")
+    ps.save(os.path.join(REPO, "android", "app", "src", "main", "ic_launcher-playstore.png"), "PNG")
+    print("wrote android/app/src/main/ic_launcher-playstore.png")
+
+    # Windows: same drop on the rounded-square tile, packed as a multi-size ICO
+    ico = rounded_bg((256, 256), 0.22)
+    ico.alpha_composite(
+        draw_drop((256, 256), (256 * 0.24, 256 * 0.13, 256 * 0.76, 256 * 0.85))
+    )
+    ico = ico.convert("RGB")  # ICO entries are opaque
+    ico.save(
+        ICO,
+        format="ICO",
+        sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)],
+    )
+    print("wrote windows/Assets/app.ico")
 
 
 if __name__ == "__main__":

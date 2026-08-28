@@ -1,0 +1,176 @@
+name: release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  APP_VERSION: "1.4.0"
+
+permissions:
+  contents: write
+
+jobs:
+  android:
+    name: Android APKs
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up release signing from secrets (optional)
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        working-directory: .
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "No signing secrets configured; release will use android/keystores/ci.keystore"
+            exit 0
+          fi
+          cd android
+          echo "$KEYSTORE_BASE64" | base64 -d > "$GITHUB_WORKSPACE/android/release.keystore"
+          cat > local.properties <<EOF
+          STORE_FILE=$GITHUB_WORKSPACE/android/release.keystore
+          STORE_PASSWORD=$KEYSTORE_PASSWORD
+          KEY_ALIAS=$KEY_ALIAS
+          KEY_PASSWORD=$KEY_PASSWORD
+          EOF
+
+      - name: Unit tests (incl. shared protocol vectors)
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:testDebugUnitTest --console=plain
+
+      - name: Build release APKs
+        env:
+          BUILD_NO: ${{ github.run_number }}
+        run: >
+          ./gradlew :app:assembleRelease --console=plain
+          -PbuildVersionCode=$BUILD_NO
+          "-PbuildVersionName=$APP_VERSION-b$BUILD_NO"
+
+      - name: Rename APKs
+        env:
+          BUILD_NO: ${{ github.run_number }}
+        run: |
+          cd app/build/outputs/apk/release
+          mv app-arm64-v8a-release.apk "Bluedrop-$APP_VERSION-b$BUILD_NO-arm64-v8a.apk"
+          mv app-universal-release.apk "Bluedrop-$APP_VERSION-b$BUILD_NO-universal.apk"
+          ls -la
+
+      - name: Upload APK artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apks
+          path: |
+            android/app/build/outputs/apk/release/Bluedrop-*.apk
+          if-no-files-found: error
+
+  windows:
+    name: Windows installer
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: windows
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('windows/**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Test (incl. shared protocol vectors)
+        run: dotnet test BluedropWindows.Tests/BluedropWindows.Tests.csproj --configuration Release --verbosity minimal
+
+      - name: Publish self-contained win-x64 build
+        env:
+          BUILD_NO: ${{ github.run_number }}
+        run: >
+          dotnet publish BluedropWindows.csproj
+          --configuration Release
+          --runtime win-x64
+          --self-contained true
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          "-p:Version=$env:APP_VERSION-b$env:BUILD_NO"
+          "-p:AssemblyVersion=$env:APP_VERSION.$env:BUILD_NO"
+          "-p:FileVersion=$env:APP_VERSION.$env:BUILD_NO"
+          --output ./publish
+
+      - name: Build installer (Inno Setup)
+        env:
+          BUILD_NO: ${{ github.run_number }}
+        run: |
+          choco install innosetup --no-progress -y
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          & $iscc "/DAppVersion=$env:APP_VERSION-b$env:BUILD_NO" "/DOutputBase=Bluedrop-Setup-$env:APP_VERSION-b$env:BUILD_NO" "InnoInstaller.iss"
+          Get-ChildItem ./*.exe | Select-Object Name, Length
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: |
+            windows/Bluedrop-Setup-*.exe
+          if-no-files-found: error
+
+  release:
+    name: Combined GitHub release
+    needs: [android, windows]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create GitHub release
+        env:
+          BUILD_NO: ${{ github.run_number }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v$APP_VERSION-b$BUILD_NO"
+          ls -la dist/
+          SIGNING_NOTE="CI convenience key (android/keystores/ci.keystore) — fine for personal installs, do not distribute as official"
+          if [ -n "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ]; then
+            SIGNING_NOTE="release key from secrets"
+          fi
+          gh release create "$TAG" dist/* \
+            --title "Bluedrop $APP_VERSION build $BUILD_NO" \
+            --prerelease \
+            --notes "Automated build from commit ${{ github.sha }}. One release, both ends of the link:
+
+          - **Bluedrop-$APP_VERSION-b$BUILD_NO-arm64-v8a.apk** — Android, for phones
+          - **Bluedrop-$APP_VERSION-b$BUILD_NO-universal.apk** — Android, any device/emulator
+          - **Bluedrop-Setup-$APP_VERSION-b$BUILD_NO.exe** — Windows x64 installer (self-contained)
+
+          Android signing: $SIGNING_NOTE (see android/keystores/README.md).
+
+          Both ends passed the shared protocol vectors (protocol/vectors.json)."

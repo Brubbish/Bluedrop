@@ -10,31 +10,49 @@ public class FrameCodecTests
     private static string Hex(byte[] bytes) =>
         string.Join(" ", bytes.Select(b => b.ToString("x2")));
 
-    [Fact]
-    public void PingFrameMatchesSpecVector()
+    // Canonical vectors live in /protocol/vectors.json at the monorepo root and
+    // are shared with the Android suite — both framers must agree on these bytes.
+    private static readonly System.Text.Json.JsonElement Vectors = LoadVectors();
+
+    private static System.Text.Json.JsonElement LoadVectors()
     {
-        var payload = new byte[] { 0, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77 };
-        var frame = new Frame(Bdip.TypePing, payload).Encode();
-        Assert.Equal(
-            "42 44 49 50 01 02 08 00 00 00 00 11 22 33 44 55 66 77",
-            Hex(frame));
+        var path = Path.Combine(AppContext.BaseDirectory, "vectors.json");
+        using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllBytes(path));
+        return doc.RootElement.Clone();
+    }
+
+    private static byte[] HexToBytes(string hex) =>
+        Enumerable.Range(0, hex.Length / 2)
+            .Select(i => Convert.ToByte(hex.Substring(i * 2, 2), 16))
+            .ToArray();
+
+    [Fact]
+    public void SharedFrameVectorsRoundTrip()
+    {
+        foreach (var entry in Vectors.GetProperty("frames").EnumerateArray())
+        {
+            var name = entry.GetProperty("name").GetString();
+            var type = Convert.ToByte(entry.GetProperty("type").GetString()!, 16);
+            var payload = HexToBytes(entry.GetProperty("payloadHex").GetString()!);
+            var wire = HexToBytes(entry.GetProperty("frameHex").GetString()!);
+
+            Assert.Equal(wire, new Frame(type, payload).Encode());
+
+            var decoded = FrameCodec.ReadAsync(new MemoryStream(wire)).GetAwaiter().GetResult();
+            Assert.Equal(type, decoded.Type);
+            Assert.Equal(payload, decoded.Payload);
+        }
     }
 
     [Fact]
-    public void ClipboardTextMatchesSpecVector()
+    public async Task SharedRejectVectorsAreRefused()
     {
-        var frame = new Frame(Bdip.TypeClipboardText, Encoding.UTF8.GetBytes("hi")).Encode();
-        Assert.Equal("42 44 49 50 01 10 02 00 00 00 68 69", Hex(frame));
-    }
-
-    [Fact]
-    public void ByeMatchesSpecVector()
-    {
-        var payload = new byte[] { 0 }.Concat(Encoding.UTF8.GetBytes("""{"message":"quit"}""")).ToArray();
-        var frame = new Frame(Bdip.TypeBye, payload).Encode();
-        Assert.Equal(
-            "42 44 49 50 01 04 13 00 00 00 00 7b 22 6d 65 73 73 61 67 65 22 3a 22 71 75 69 74 22 7d",
-            Hex(frame));
+        foreach (var entry in Vectors.GetProperty("rejects").EnumerateArray())
+        {
+            var bytes = HexToBytes(entry.GetProperty("hex").GetString()!);
+            await Assert.ThrowsAsync<ProtocolException>(
+                () => FrameCodec.ReadAsync(new MemoryStream(bytes)));
+        }
     }
 
     [Fact]
@@ -49,39 +67,10 @@ public class FrameCodecTests
     }
 
     [Fact]
-    public async Task RejectsBadMagic()
+    public async Task TruncatedVectorFrameRaisesEndOfStream()
     {
-        var bad = new Frame(Bdip.TypePing, []).Encode();
-        bad[3] = 0x51;
-        await Assert.ThrowsAsync<ProtocolException>(
-            () => FrameCodec.ReadAsync(new MemoryStream(bad)));
-    }
-
-    [Fact]
-    public async Task RejectsUnknownVersion()
-    {
-        var bad = new Frame(Bdip.TypePing, []).Encode();
-        bad[4] = 0x02;
-        await Assert.ThrowsAsync<ProtocolException>(
-            () => FrameCodec.ReadAsync(new MemoryStream(bad)));
-    }
-
-    [Fact]
-    public async Task RejectsOverCapLength()
-    {
-        var header = new byte[]
-        {
-            0x42, 0x44, 0x49, 0x50, 0x01, Bdip.TypeClipboardImage,
-            0x01, 0x00, 0x90, 0x00, // 9 MiB + 1, little-endian
-        };
-        await Assert.ThrowsAsync<ProtocolException>(
-            () => FrameCodec.ReadAsync(new MemoryStream(header)));
-    }
-
-    [Fact]
-    public async Task TruncatedFrameRaisesEndOfStream()
-    {
-        var full = new Frame(Bdip.TypeClipboardText, Encoding.UTF8.GetBytes("hello")).Encode();
+        var first = Vectors.GetProperty("frames")[0].GetProperty("frameHex").GetString()!;
+        var full = HexToBytes(first);
         await Assert.ThrowsAsync<EndOfStreamException>(
             () => FrameCodec.ReadAsync(new MemoryStream(full[..^2])));
     }

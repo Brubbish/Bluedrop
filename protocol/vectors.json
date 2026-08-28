@@ -1,0 +1,45 @@
+{
+  "protocol": "BDIP",
+  "version": 1,
+  "comment": "Shared wire-format test vectors defined by docs/PROTOCOL.md §5. Both the Kotlin (android/) and C# (windows/) framers load this file in their unit tests: every 'frames' entry must encode and decode to exactly these bytes, and every 'rejects' entry must be refused as a protocol error. Change the protocol → change this file → both suites must go red.",
+  "frames": [
+    {
+      "name": "ping",
+      "description": "PING carrying an opaque 8-byte payload",
+      "type": "0x02",
+      "payloadHex": "0011223344556677",
+      "frameHex": "424449500102080000000011223344556677"
+    },
+    {
+      "name": "clipboard_text_hi",
+      "description": "CLIPBOARD_TEXT with payload \"hi\"",
+      "type": "0x10",
+      "payloadHex": "6869",
+      "frameHex": "424449500110020000006869"
+    },
+    {
+      "name": "bye_shutdown_quit",
+      "description": "BYE reason=shutdown(u8 0) + detail {\"message\":\"quit\"}",
+      "type": "0x04",
+      "payloadHex": "007b226d657373616765223a2271756974227d",
+      "frameHex": "42444950010413000000007b226d657373616765223a2271756974227d"
+    }
+  ],
+  "rejects": [
+    {
+      "name": "bad_magic",
+      "description": "byte 3 corrupted (Q instead of P)",
+      "hex": "424449510102080000000011223344556677"
+    },
+    {
+      "name": "unknown_version",
+      "description": "version byte is 2",
+      "hex": "424449500202080000000011223344556677"
+    },
+    {
+      "name": "length_over_cap",
+      "description": "length = 9 MiB + 1 exceeds the 8 MiB frame cap",
+      "hex": "42444950011101009000"
+    }
+  ]
+}

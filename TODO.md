@@ -45,8 +45,8 @@ Guiding decisions already made:
       (per-peer sessions, reader/writer coroutines, outbound queue, reconnect
       with backoff). Legacy text path kept as a runtime 4-byte sniff instead of
       a build flag — upgraded peers interop with ClipSync clients until v2.0.0.
-- [x] Windows: forked `clipsync-windows` → `Brubbish/Bluedrop-windows`; same
-      protocol over 32feet streams (`Protocol/` + reworked `MainWindow`).
+- [x] Windows: forked `clipsync-windows`, same protocol over 32feet streams —
+      now lives in `windows/` of this monorepo (`Protocol/` + reworked `MainWindow`).
 - [x] Round-trip tests on both ends: spec hex vectors, framing reject cases,
       handshake, bidirectional clipboard, chunk reassembly (Android 58 tests,
       Windows 11 tests — all green).

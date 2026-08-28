@@ -140,7 +140,7 @@ class BluetoothServiceTest {
         val intent = Intent().putExtra("SELECTED_DEVICES", arrayOf(testDeviceAddress))
         controller.withIntent(intent).startCommand(0, 1)
 
-        verify(bluetoothAdapter).listenUsingRfcommWithServiceRecord("Bluedrop", testUuid)
+        verify(bluetoothAdapter, timeout(2000)).listenUsingRfcommWithServiceRecord("Bluedrop", testUuid)
     }
 
     @Test

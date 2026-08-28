@@ -1,52 +1,66 @@
 package com.bluedrop.bluetooth
 
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Test
 import java.io.ByteArrayInputStream
-import java.io.ByteArrayOutputStream
 import java.io.EOFException
 import java.io.IOException
 import java.io.InputStream
 
+/**
+ * Framing tests. The canonical vectors live in `/protocol/vectors.json` at the
+ * monorepo root and are shared with the Windows test suite — both framers must
+ * agree on exactly these bytes.
+ */
 class FrameCodecTest {
 
-    private fun hex(bytes: ByteArray) = bytes.joinToString(" ") { "%02x".format(it) }
+    companion object {
+        private val vectors by lazy {
+            val text = FrameCodecTest::class.java.getResourceAsStream("/vectors.json")
+                ?.readBytes()?.decodeToString()
+                ?: error("vectors.json not on test classpath")
+            Json.parseToJsonElement(text).jsonObject
+        }
 
-    @Test
-    fun `PING frame matches the spec vector`() {
-        val payload = byteArrayOf(0, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77)
-        val frame = FrameCodec.encode(Bdip.TYPE_PING, payload)
-        assertEquals(
-            "42 44 49 50 01 02 08 00 00 00 00 11 22 33 44 55 66 77",
-            hex(frame),
-        )
+        private fun hexToBytes(hex: String): ByteArray =
+            hex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+
+        private fun firstFrameBytes(): ByteArray =
+            hexToBytes(vectors["frames"]!!.jsonArray[0].jsonObject["frameHex"]!!.jsonPrimitive.content)
     }
 
     @Test
-    fun `CLIPBOARD_TEXT hi matches the spec vector`() {
-        val frame = FrameCodec.encode(Bdip.TYPE_CLIPBOARD_TEXT, "hi".toByteArray())
-        assertEquals("42 44 49 50 01 10 02 00 00 00 68 69", hex(frame))
+    fun `shared frame vectors round-trip`() {
+        for (case in vectors["frames"]!!.jsonArray) {
+            val obj = case.jsonObject
+            val name = obj["name"]!!.jsonPrimitive.content
+            val type = obj["type"]!!.jsonPrimitive.content.removePrefix("0x").toInt(16)
+            val payload = hexToBytes(obj["payloadHex"]!!.jsonPrimitive.content)
+            val wire = hexToBytes(obj["frameHex"]!!.jsonPrimitive.content)
+
+            assertArrayEquals("vector $name: encoded bytes", wire, FrameCodec.encode(type, payload))
+
+            val decoded = FrameCodec.read(ByteArrayInputStream(wire))
+            assertEquals("vector $name: type", type, decoded.type)
+            assertArrayEquals("vector $name: payload", payload, decoded.payload)
+        }
     }
 
     @Test
-    fun `BYE shutdown matches the spec vector`() {
-        val payload = byteArrayOf(0) + """{"message":"quit"}""".toByteArray()
-        val frame = FrameCodec.encode(Bdip.TYPE_BYE, payload)
-        assertEquals(
-            "42 44 49 50 01 04 13 00 00 00 00 7b 22 6d 65 73 73 61 67 65 22 3a 22 71 75 69 74 22 7d",
-            hex(frame),
-        )
-    }
-
-    @Test
-    fun `decode round-trips large payloads`() {
-        val payload = ByteArray(256 * 1024) { (it % 251).toByte() }
-        val encoded = FrameCodec.encode(Bdip.TYPE_CLIPBOARD_IMAGE, payload)
-        val decoded = FrameCodec.read(ByteArrayInputStream(encoded))
-        assertEquals(Bdip.TYPE_CLIPBOARD_IMAGE, decoded.type)
-        assertArrayEquals(payload, decoded.payload)
+    fun `shared reject vectors are refused`() {
+        for (case in vectors["rejects"]!!.jsonArray) {
+            val name = case.jsonObject["name"]!!.jsonPrimitive.content
+            val bytes = hexToBytes(case.jsonObject["hex"]!!.jsonPrimitive.content)
+            assertThrows("vector $name must be rejected", IOException::class.java) {
+                FrameCodec.read(ByteArrayInputStream(bytes))
+            }
+        }
     }
 
     @Test
@@ -63,42 +77,21 @@ class FrameCodecTest {
     }
 
     @Test
-    fun `rejects bad magic`() {
-        val bad = FrameCodec.encode(Bdip.TYPE_PING, ByteArray(0))
-        bad[3] = 0x51.toByte() // "Q" instead of "P"
-        assertThrows(IOException::class.java) {
-            FrameCodec.read(ByteArrayInputStream(bad))
-        }
-    }
-
-    @Test
-    fun `rejects unknown version`() {
-        val bad = FrameCodec.encode(Bdip.TYPE_PING, ByteArray(0))
-        bad[4] = 0x02.toByte()
-        assertThrows(IOException::class.java) {
-            FrameCodec.read(ByteArrayInputStream(bad))
-        }
-    }
-
-    @Test
-    fun `rejects over-cap length`() {
-        val header = byteArrayOf(
-            0x42, 0x44, 0x49, 0x50, 0x01, Bdip.TYPE_CLIPBOARD_IMAGE.toByte(),
-            // length = 9 MiB + 1
-            0x01, 0x00, 0x90.toByte(), 0x00,
-        )
-        assertThrows(IOException::class.java) {
-            FrameCodec.read(ByteArrayInputStream(header))
-        }
-    }
-
-    @Test
-    fun `truncated frame raises EOF`() {
-        val full = FrameCodec.encode(Bdip.TYPE_CLIPBOARD_TEXT, "hello".toByteArray())
+    fun `truncated vector frame raises EOF`() {
+        val full = firstFrameBytes()
         val truncated: InputStream = ByteArrayInputStream(full.copyOf(full.size - 2))
         assertThrows(EOFException::class.java) {
             FrameCodec.read(truncated)
         }
+    }
+
+    @Test
+    fun `decode round-trips large payloads`() {
+        val payload = ByteArray(256 * 1024) { (it % 251).toByte() }
+        val encoded = FrameCodec.encode(Bdip.TYPE_CLIPBOARD_IMAGE, payload)
+        val decoded = FrameCodec.read(ByteArrayInputStream(encoded))
+        assertEquals(Bdip.TYPE_CLIPBOARD_IMAGE, decoded.type)
+        assertArrayEquals(payload, decoded.payload)
     }
 
     @Test

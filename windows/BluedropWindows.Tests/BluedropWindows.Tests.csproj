@@ -18,4 +18,9 @@
     <ProjectReference Include="..\BluedropWindows.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- shared BDIP test vectors at the monorepo root, also consumed by android/ -->
+    <Content Include="..\..\protocol\vectors.json" Link="vectors.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

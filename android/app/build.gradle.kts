@@ -49,6 +49,13 @@ android {
         unitTests.isIncludeAndroidResources = true
     }
 
+    sourceSets {
+        // shared BDIP test vectors live at the monorepo root (protocol/)
+        getByName("test") {
+            resources.srcDir(rootProject.rootDir.parentFile.resolve("protocol"))
+        }
+    }
+
     signingConfigs {
         val storeFilePath = localProperties.getProperty("STORE_FILE")
         val ciKeystore = rootProject.file("keystores/ci.keystore")
