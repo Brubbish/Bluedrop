@@ -7,7 +7,7 @@ plugins {
 }
 
 android {
-    namespace = "com.aubynsamuel.baselineprofile"
+    namespace = "com.bluedrop.baselineprofile"
     compileSdk = 36
 
     compileOptions {

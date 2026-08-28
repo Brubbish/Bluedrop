@@ -12,7 +12,7 @@ plugins {
 val mockitoAgent = configurations.create("mockitoAgent")
 
 android {
-    namespace = "com.aubynsamuel.clipsync"
+    namespace = "com.bluedrop"
     compileSdk = 36
 
     val localProperties = Properties()
@@ -22,7 +22,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.aubynsamuel.clipsync"
+        applicationId = "com.bluedrop"
         minSdk = 24
         targetSdk = 36
         versionCode = 7
@@ -36,11 +36,14 @@ android {
     }
 
     signingConfigs {
-        create("release") {
-            storeFile = file(localProperties["STORE_FILE"] as String)
-            storePassword = localProperties["STORE_PASSWORD"] as String
-            keyAlias = localProperties["KEY_ALIAS"] as String
-            keyPassword = localProperties["KEY_PASSWORD"] as String
+        val storeFilePath = localProperties.getProperty("STORE_FILE")
+        if (storeFilePath != null) {
+            create("release") {
+                storeFile = file(storeFilePath)
+                storePassword = localProperties.getProperty("STORE_PASSWORD")
+                keyAlias = localProperties.getProperty("KEY_ALIAS")
+                keyPassword = localProperties.getProperty("KEY_PASSWORD")
+            }
         }
     }
 
@@ -49,7 +52,8 @@ android {
             val boolean = true
             isMinifyEnabled = boolean
             isShrinkResources = boolean
-            signingConfig = signingConfigs.getByName("release")
+            signingConfig = signingConfigs.findByName("release")
+                ?: signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

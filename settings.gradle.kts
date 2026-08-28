@@ -22,6 +22,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "ClipSync"
+rootProject.name = "Bluedrop"
 include(":app")
 include(":baselineprofile")

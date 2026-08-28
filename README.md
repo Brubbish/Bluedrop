@@ -24,15 +24,17 @@ beyond text-only clipboard sync into a general Bluetooth transfer utility:
 
 | Capability | State |
 | --- | --- |
-| Text clipboard, Android ↔ Windows | ✅ works today (inherited from ClipSync v1.3.2) |
-| Persistent connection + reliable binary protocol | 🚧 Phase 1 — see [TODO](TODO.md) |
-| Image clipboard | 🚧 Phase 2 |
-| File transfer with progress | 🚧 Phase 3 |
-| Link-presence output for other tools | 🚧 Phase 4 |
+| Text clipboard, Android ↔ Windows | ✅ over BDIP v1 (legacy ClipSync clients still accepted until v2.0.0) |
+| Persistent connection + reliable binary protocol | ✅ BDIP v1 — [docs/PROTOCOL.md](docs/PROTOCOL.md), tested on both ends |
+| Image clipboard | ✅ PNG both directions |
+| File transfer (chunked, ACKed) | ✅ share sheet / button / drag-and-drop; progress UI is basic |
+| Link-presence output for other tools | ✅ `%LOCALAPPDATA%\Bluedrop\link.json` — [docs/STATUS.md](docs/STATUS.md) |
+| Pairing token, fuzzing, installers | 🚧 Phase 5 — see [TODO](TODO.md) |
 
-Until the protocol rewrite lands, the Android app pairs with the
-[upstream ClipSync Windows companion](https://github.com/aubynsamuel/clipsync-windows/releases).
-After the cutover, both ends must be Bluedrop.
+Both ends are Bluedrop now: this repo (Android) and
+[Brubbish/Bluedrop-windows](https://github.com/Brubbish/Bluedrop-windows) (forked
+from clipsync-windows). During migration either end still interoperates with
+plain ClipSync v1.3 peers via the legacy fallback.
 
 ## How it works
 
@@ -68,10 +70,13 @@ Requires the Android SDK; see `app/build.gradle.kts` for min/target SDK levels.
 
 ## Project layout
 
-- `app/` — Android app (Kotlin, Jetpack Compose, foreground service hosting an RFCOMM server)
-- Windows companion — will live in a sibling repo (`Bluedrop-windows`, forked from
-  [clipsync-windows](https://github.com/aubynsamuel/clipsync-windows)) once Phase 1 starts
-- `docs/PROTOCOL.md` — the wire protocol (written first; both ends implement it)
+- `app/` — Android app (Kotlin, Jetpack Compose, foreground service hosting
+  persistent BDIP sessions over RFCOMM; `app/src/main/java/com/bluedrop/bluetooth/`)
+- [Bluedrop-windows](https://github.com/Brubbish/Bluedrop-windows) — the .NET 9 /
+  WPF / 32feet.NET companion speaking the same protocol
+- `docs/PROTOCOL.md` — the wire protocol (frozen before implementation)
+- `docs/STATUS.md` — the link.json presence contract for external consumers
+- `tools/make_icons.py` — regenerates the launcher icon set
 
 ## Contributing
 

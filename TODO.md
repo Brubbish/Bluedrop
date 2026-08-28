@@ -19,20 +19,21 @@ Guiding decisions already made:
 
 ## Phase 0 — Rebrand & housekeeping
 
-- [ ] Rename application id/namespace `com.aubynsamuel.clipsync` → `com.bluedrop`
-      (update `build.gradle.kts`, source packages, `AndroidManifest`, test packages,
-      FileProvider authority, notification channel ids).
-- [ ] App display name → "Bluedrop"; new launcher icon (a blue drop); notification
-      strings updated.
-- [ ] Remove `.github/FUNDING.yml` (points at the original author).
-- [ ] Refresh `demo/` screenshots after the UI rebrand; drop the ClipSync gif in
-      the meantime.
-- [ ] Verify CI still builds after the rename; cut a `v1.3.2-bluedrop.0` tag as
-      the pre-protocol baseline.
+- [x] Rename application id/namespace `com.aubynsamuel.clipsync` → `com.bluedrop`
+      (build.gradle.kts, source/test packages, manifest, notification channel,
+      widget classes; FileProvider authority already used `${applicationId}`).
+- [x] App display name → "Bluedrop"; new blue-drop launcher icon
+      (`tools/make_icons.py` regenerates all densities); notification strings
+      updated; release signing falls back to debug keys when `local.properties`
+      has none.
+- [x] Remove `.github/FUNDING.yml` and the buy-me-a-coffee UI.
+- [x] Drop the ClipSync demo gif (screenshots to refresh after UI pass).
+- [x] Local build verified (SDK at `D:\AndroidSdk`); tag `v1.3.2-bluedrop.0`
+      marks the pre-protocol baseline.
 
 ## Phase 1 — Protocol redesign (the core)
 
-- [ ] Write `docs/PROTOCOL.md` and freeze it before any implementation:
+- [x] Write `docs/PROTOCOL.md` and freeze it before any implementation:
       - Persistent connection per peer; hello handshake with a pairing token;
         heartbeat (PING/PONG every ~10s); graceful BYE; auto-reconnect with backoff.
       - Binary framing: magic `BDIP` + version (u8) + type (u8) + length (u32 LE)
@@ -40,49 +41,46 @@ Guiding decisions already made:
       - Message types: `HELLO`, `PING`/`PONG`, `BYE`, `CLIPBOARD_TEXT`,
         `CLIPBOARD_IMAGE`, `FILE_META`, `FILE_CHUNK`, `FILE_ACK`, `PROGRESS`.
       - File chunking: 32–64 KiB chunks, cumulative ACK, resume not required for v1.
-- [ ] Android: replace the one-shot `readLine()` JSON path in `BluetoothService`
-      with a per-peer session (reader/writer coroutines over a persistent socket,
-      outbound queue, connection manager, reconnect state machine). Keep the
-      legacy text path behind a build flag until the Windows side catches up.
-- [ ] Windows: fork `clipsync-windows` → `Bluedrop-windows`; port the same
-      protocol over 32feet streams.
-- [ ] Round-trip tests on both ends: framing encode/decode, chunk reassembly,
-      oversized/truncated frame rejection, reconnect behavior.
-- [ ] Cutover: text clipboard runs on the new protocol end to end; legacy path
-      deleted.
+- [x] Android: `Bdip.kt` + `BdipSession` + reworked `BluetoothService`
+      (per-peer sessions, reader/writer coroutines, outbound queue, reconnect
+      with backoff). Legacy text path kept as a runtime 4-byte sniff instead of
+      a build flag — upgraded peers interop with ClipSync clients until v2.0.0.
+- [x] Windows: forked `clipsync-windows` → `Brubbish/Bluedrop-windows`; same
+      protocol over 32feet streams (`Protocol/` + reworked `MainWindow`).
+- [x] Round-trip tests on both ends: spec hex vectors, framing reject cases,
+      handshake, bidirectional clipboard, chunk reassembly (Android 58 tests,
+      Windows 11 tests — all green).
+- [ ] Cutover: legacy path stays until v2.0.0 by design (see above).
 
 ## Phase 2 — Image clipboard
 
-- [ ] Android receive: `CLIPBOARD_IMAGE` payload (PNG bytes) → clipboard URI via
-      a content provider over the cache dir; optional auto-copy toggle honored.
-- [ ] Android send: share-sheet entries that receive image URIs → stream to
-      `CLIPBOARD_IMAGE`; notification action sends the clipboard image if present.
-- [ ] Windows receive: set `Clipboard.SetImage` (DIB conversion from PNG bytes).
-- [ ] Windows send: clipboard contains an image → send button pushes it; also
-      accept drag-and-drop images into the tray/app window.
+- [x] Android receive: PNG → cache dir → FileProvider URI on the clipboard.
+- [x] Android send: share-sheet `ACTION_SEND`/`SEND_MULTIPLE` entries handle
+      image URIs (re-encoded to PNG per spec §3.3).
+- [x] Windows receive: PNG → `BitmapSource` → `Clipboard.SetImage`.
+- [x] Windows send: Share button sends the clipboard image when present.
 - [ ] Progress notification on Android for transfers above a size threshold.
 
 ## Phase 3 — File transfer
 
-- [ ] Android receive: `FILE_META` + chunks → Downloads via MediaStore; completed
-      notification with "open" action.
-- [ ] Android send: multi-file share-sheet; sequential transfer queue.
-- [ ] Windows receive: configurable inbox folder (default
-      `%USERPROFILE%\Downloads\Bluedrop`); per-file progress UI.
-- [ ] Windows send: app drop zone + (optional) Explorer context-menu entry.
-- [ ] Cancel/replace semantics: a new transfer preempts or queues (pick one,
-      document it).
+- [x] Android receive: chunks → temp file → MediaStore Downloads; tap-to-open
+      notification.
+- [x] Android send: multi-file share-sheet → sequential transfers.
+- [x] Windows receive: configurable inbox folder (default
+      `%USERPROFILE%\Downloads\Bluedrop`, `InboxFolder` setting).
+- [x] Windows send: Send File(s) button + window-wide drag-and-drop drop zone.
+- [x] Cancel/replace semantics: **queue** — one file transfer per session at a
+      time (spec §3.4); a new transfer waits for the current one.
+- [ ] Explorer context-menu entry; per-file progress UI beyond the status bar.
 
 ## Phase 4 — Presence & integrations
 
-- [ ] Windows side publishes link status to `%LOCALAPPDATA%\Bluedrop\link.json`
-      (`{ connected, since, peer_name }`, written on every change) and optionally
-      a `127.0.0.1` JSON endpoint. This is the documented integration contract —
-      external tools (e.g. Alfred) read it and must degrade to "no signal" when
-      absent.
-- [ ] Battery-optimization guidance screen on first run (exemption request +
-      explanation), since the persistent link dies under Doze otherwise.
-- [ ] Document a minimal consumer example for the status contract.
+- [x] Windows publishes link status to `%LOCALAPPDATA%\Bluedrop\link.json`
+      (`{ connected, since, peer_name, updated_at }`, change-driven writes).
+- [x] Battery-optimization guidance dialog on first run (exemption request +
+      explanation); persistent links die under Doze otherwise.
+- [x] Status contract documented with consumer examples — `docs/STATUS.md`.
+- [ ] Optional `127.0.0.1` JSON endpoint (file is enough for now).
 
 ## Phase 5 — Hardening & release
 
