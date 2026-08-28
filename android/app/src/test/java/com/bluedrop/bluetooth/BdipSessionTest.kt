@@ -179,9 +179,10 @@ class BdipSessionTest {
             chunks = 3, mime = "application/octet-stream",
         )
         // the recording listener never ACKs, so stop-and-wait must time out
-        val sent = initiator.sendFile(meta) { offset, count ->
-            data.copyOfRange(offset.toInt(), (offset + count).toInt())
-        }
+        val sent = initiator.sendFile(
+            meta,
+            { offset, count -> data.copyOfRange(offset.toInt(), (offset + count).toInt()) }
+        )
         assertEquals(-1L, sent)
         assertEquals(1, responderListener.metas.size)
         assertEquals(1, responderListener.chunks.size) // stopped after first un-acked chunk
@@ -212,9 +213,10 @@ class BdipSessionTest {
         withTimeout(5_000) { initiator2.awaitEstablished() }
 
         val sent = withTimeout(30_000) {
-            initiator2.sendFile(meta) { offset, count ->
-                data.copyOfRange(offset.toInt(), (offset + count).toInt())
-            }
+            initiator2.sendFile(
+                meta,
+                { offset, count -> data.copyOfRange(offset.toInt(), (offset + count).toInt()) }
+            )
         }
         assertEquals(data.size.toLong(), sent)
         assertArrayEquals(data, receiver2.received.toByteArray())

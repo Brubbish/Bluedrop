@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Cancel
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -135,6 +136,17 @@ fun MainScreen(
                             DarkModeToggle(
                                 isDarkMode = isDarkMode,
                                 onToggle = { settingsViewModel.switchTheme() },
+                            )
+
+                            Icon(
+                                Icons.Default.History,
+                                contentDescription = "Transfer history",
+                                tint = colorScheme.onPrimaryContainer,
+                                modifier = Modifier
+                                    .size(25.dp)
+                                    .clickable {
+                                        navController.navigate(Screens.HistoryScreen)
+                                    }
                             )
 
                             Icon(

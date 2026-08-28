@@ -59,7 +59,7 @@ Guiding decisions already made:
       image URIs (re-encoded to PNG per spec §3.3).
 - [x] Windows receive: PNG → `BitmapSource` → `Clipboard.SetImage`.
 - [x] Windows send: Share button sends the clipboard image when present.
-- [ ] Progress notification on Android for transfers above a size threshold.
+- [x] Progress notification on Android for transfers above a size threshold (1 MiB+, receive and send).
 
 ## Phase 3 — File transfer
 
@@ -71,7 +71,9 @@ Guiding decisions already made:
 - [x] Windows send: Send File(s) button + window-wide drag-and-drop drop zone.
 - [x] Cancel/replace semantics: **queue** — one file transfer per session at a
       time (spec §3.4); a new transfer waits for the current one.
-- [ ] Explorer context-menu entry; per-file progress UI beyond the status bar.
+- [x] Per-file progress beyond the status bar (receive % on Windows; progress notifications on Android).
+- [x] Transfer history on both ends: list of files/images sent and received, remove record only, or delete record + stored file.
+- [ ] Explorer context-menu entry.
 
 ## Phase 4 — Presence & integrations
 

@@ -17,8 +17,12 @@ import android.util.Log
 import com.bluedrop.core.Essentials
 import com.bluedrop.core.copyToClipboard
 import com.bluedrop.core.copyImageToClipboard
+import com.bluedrop.core.TransferHistory
+import com.bluedrop.core.TransferRecord
 import com.bluedrop.core.saveReceivedImage
 import com.bluedrop.core.saveReceivedFile
+import com.bluedrop.notification.cancelTransferProgressNotification
+import com.bluedrop.notification.showTransferProgressNotification
 import com.bluedrop.notification.createNotificationChannel
 import com.bluedrop.notification.createServiceNotification
 import com.bluedrop.notification.showReceivedNotification
@@ -62,6 +66,7 @@ class BluetoothService : Service() {
         private const val CONNECT_TIMEOUT_MS = 10_000L
         private const val RECONNECT_BASE_MS = 1_000L
         private const val RECONNECT_CAP_MS = 30_000L
+        private const val PROGRESS_NOTIFICATION_MIN_BYTES = 1L * 1024 * 1024
     }
 
     private val serviceScope = CoroutineScope(
@@ -101,6 +106,18 @@ class BluetoothService : Service() {
                 val uri = saveReceivedImage(png, this@BluetoothService)
                 copyImageToClipboard(uri, this@BluetoothService)
                 showFileReceivedNotification("Image received", uri, this@BluetoothService)
+                TransferHistory.add(
+                    TransferRecord(
+                        id = uri.lastPathSegment ?: UUID.randomUUID().toString(),
+                        timestamp = System.currentTimeMillis(),
+                        direction = "received",
+                        kind = "image",
+                        name = uri.lastPathSegment ?: "clipboard image",
+                        size = png.size.toLong(),
+                        uri = uri.toString(),
+                        mime = "image/png",
+                    )
+                )
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to apply received image", e)
             }
@@ -116,6 +133,12 @@ class BluetoothService : Service() {
             if (index != entry.expectedIndex) {
                 failTransfer("out-of-order chunk $index (expected ${entry.expectedIndex})")
                 return
+            }
+            if (meta.size >= PROGRESS_NOTIFICATION_MIN_BYTES) {
+                showTransferProgressNotification(
+                    this@BluetoothService, "Receiving " + meta.name,
+                    entry.received + data.size, meta.size,
+                )
             }
             val out = entry.tempFile ?: File(cacheDir, "bluedrop-${meta.id}").also {
                 entry.tempFile = it
@@ -154,7 +177,20 @@ class BluetoothService : Service() {
                 session.sendFileAck(
                     FileAck(id = meta.id, received = meta.size, done = true, path = uri.toString())
                 )
+                cancelTransferProgressNotification(this@BluetoothService)
                 showFileReceivedNotification(meta.name, uri, this@BluetoothService)
+                TransferHistory.add(
+                    TransferRecord(
+                        id = meta.id,
+                        timestamp = System.currentTimeMillis(),
+                        direction = "received",
+                        kind = "file",
+                        name = meta.name,
+                        size = meta.size,
+                        uri = uri.toString(),
+                        mime = meta.mime,
+                    )
+                )
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to finalize ${meta.name}", e)
                 failTransfer(e.message ?: "write failed")
@@ -162,6 +198,7 @@ class BluetoothService : Service() {
         }
 
         private fun failTransfer(message: String) {
+            cancelTransferProgressNotification(this@BluetoothService)
             val meta = incoming?.meta ?: return
             Log.e(TAG, "Transfer of ${meta.name} failed: $message")
             incoming?.tempFile?.delete()
@@ -197,6 +234,7 @@ class BluetoothService : Service() {
         serviceScope.launch {
             Essentials.autoCopy.collect { isEnabled -> autoCopyEnabled = isEnabled }
         }
+        TransferHistory.init(this)
         createNotificationChannel(this)
         val bluetoothManager = getSystemService(BLUETOOTH_SERVICE) as BluetoothManager
         bluetoothAdapter = bluetoothManager.adapter
@@ -453,6 +491,19 @@ class BluetoothService : Service() {
             val session = sessionOrDial(address) ?: return@forEach
             anySuccess = session.sendClipboardImage(png) || anySuccess
         }
+        if (anySuccess) {
+            TransferHistory.add(
+                TransferRecord(
+                    id = UUID.randomUUID().toString(),
+                    timestamp = System.currentTimeMillis(),
+                    direction = "sent",
+                    kind = "image",
+                    name = "clipboard image",
+                    size = png.size.toLong(),
+                    mime = "image/png",
+                )
+            )
+        }
         return if (anySuccess) SharingResult.SUCCESS else SharingResult.SENDING_ERROR
     }
 
@@ -483,7 +534,16 @@ class BluetoothService : Service() {
                     mime = mime,
                     chunks = ((size + Bdip.CHUNK_SIZE - 1) / Bdip.CHUNK_SIZE).toInt(),
                 )
-                val sent = session.sendFile(meta) { _, count -> stream.readNBytesCompat(count) }
+                if (size >= PROGRESS_NOTIFICATION_MIN_BYTES) {
+                    showTransferProgressNotification(this, "Sending $displayName", 0, size)
+                }
+                val sent = session.sendFile(
+                    meta,
+                    { _, count -> stream.readNBytesCompat(count) },
+                ) { done, total ->
+                    showTransferProgressNotification(this, "Sending $displayName", done, total)
+                }
+                cancelTransferProgressNotification(this)
                 anySuccess = sent > 0 || anySuccess
             } finally {
                 try {
@@ -491,6 +551,19 @@ class BluetoothService : Service() {
                 } catch (_: IOException) {
                 }
             }
+        }
+        if (anySuccess) {
+            TransferHistory.add(
+                TransferRecord(
+                    id = UUID.randomUUID().toString(),
+                    timestamp = System.currentTimeMillis(),
+                    direction = "sent",
+                    kind = "file",
+                    name = displayName,
+                    size = size,
+                    mime = mime,
+                )
+            )
         }
         return if (anySuccess) SharingResult.SUCCESS else SharingResult.SENDING_ERROR
     }

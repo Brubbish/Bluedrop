@@ -1,0 +1,101 @@
+<Window
+    x:Class="BluedropWindows.Views.HistoryWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Bluedrop — Transfer history"
+    Width="640"
+    Height="480"
+    WindowStartupLocation="CenterOwner"
+    Background="{Binding Source={x:Static services:ThemeManager.Instance}, Path=WindowBackground}"
+    xmlns:services="clr-namespace:BluedropWindows.Services">
+
+    <Grid Margin="15">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock
+            Grid.Row="0"
+            Margin="0,0,0,10"
+            FontSize="18"
+            FontWeight="Bold"
+            Foreground="{Binding Source={x:Static services:ThemeManager.Instance}, Path=PrimaryText}"
+            Text="Transfers (files and clipboard images)" />
+
+        <ListView
+            x:Name="HistoryList"
+            Grid.Row="1"
+            Background="Transparent"
+            BorderThickness="0">
+            <ListView.ItemTemplate>
+                <DataTemplate>
+                    <Grid Margin="0,6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock
+                            Grid.Column="0"
+                            Width="28"
+                            FontSize="14"
+                            VerticalAlignment="Center"
+                            Foreground="{Binding Source={x:Static services:ThemeManager.Instance}, Path=PrimaryText}"
+                            Text="{Binding DirectionGlyph}" />
+
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                            <TextBlock
+                                FontSize="14"
+                                FontWeight="SemiBold"
+                                Foreground="{Binding Source={x:Static services:ThemeManager.Instance}, Path=PrimaryText}"
+                                Text="{Binding Name}"
+                                TextTrimming="CharacterEllipsis" />
+                            <TextBlock
+                                FontSize="12"
+                                Foreground="{Binding Source={x:Static services:ThemeManager.Instance}, Path=SecondaryText}"
+                                Text="{Binding Detail}" />
+                        </StackPanel>
+
+                        <Button
+                            Grid.Column="2"
+                            Margin="6,0"
+                            Padding="8,4"
+                            Content="Delete file"
+                            Click="DeleteFile_Click"
+                            Visibility="{Binding DeleteFileVisibility}" />
+
+                        <Button
+                            Grid.Column="3"
+                            Padding="8,4"
+                            Content="Remove"
+                            Click="Remove_Click" />
+                    </Grid>
+                </DataTemplate>
+            </ListView.ItemTemplate>
+        </ListView>
+
+        <StackPanel
+            Grid.Row="2"
+            Margin="0,10,0,0"
+            HorizontalAlignment="Right"
+            Orientation="Horizontal">
+            <Button
+                Padding="12,6"
+                Content="Clear list"
+                Click="Clear_Click" />
+        </StackPanel>
+
+        <TextBlock
+            x:Name="EmptyHint"
+            Grid.Row="1"
+            HorizontalAlignment="Center"
+            VerticalAlignment="Center"
+            Foreground="{Binding Source={x:Static services:ThemeManager.Instance}, Path=SecondaryText}"
+            Text="No transfers yet"
+            Visibility="Collapsed" />
+    </Grid>
+</Window>

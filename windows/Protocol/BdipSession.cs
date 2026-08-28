@@ -277,7 +277,7 @@ public sealed class BdipSession : IDisposable
         _writeQueue.TryAdd(new Frame(Bdip.TypeFileAck, ack.Encode()).Encode());
 
     /// <summary>Streams a file with stop-and-wait chunking (spec §3.4).</summary>
-    public async Task<long> SendFileAsync(FileMeta meta, Func<long, int, byte[]?> readChunk)
+    public async Task<long> SendFileAsync(FileMeta meta, Func<long, int, byte[]?> readChunk, Action<long, long>? onProgress = null)
     {
         await SendAsync(new Frame(Bdip.TypeFileMeta, meta.Encode()));
         long offset = 0;
@@ -295,6 +295,7 @@ public sealed class BdipSession : IDisposable
             if (ack.Error != null || ack.Id != meta.Id) return -1;
             offset += count;
             index++;
+            onProgress?.Invoke(offset, meta.Size);
             if (ack.Done == true) return meta.Size; // receiver combined the final ack
         }
         var doneWaiter = new TaskCompletionSource<FileAck>(TaskCreationOptions.RunContinuationsAsynchronously);

@@ -61,6 +61,7 @@ namespace BluedropWindows.Views
             ShareButton.Click += ShareButton_Click;
             SendFileButton.Click += SendFileButton_Click;
             ThemeToggleButton.Click += ThemeToggleButton_Click;
+            HistoryButton.Click += HistoryButton_Click;
             SettingsButton.Click += SettingsButton_Click;
 
             LoadPairedDevices();
@@ -80,6 +81,8 @@ namespace BluedropWindows.Views
                 }
             };
 
+            TransferHistory.Load();
+
             _clipboardMonitorTimer = new System.Windows.Threading.DispatcherTimer
             {
                 Interval = TimeSpan.FromMilliseconds(500)
@@ -88,6 +91,12 @@ namespace BluedropWindows.Views
             _clipboardMonitorTimer.Start();
 
             Closed += (_, _) => StopListeningService();
+        }
+
+        private void HistoryButton_Click(object sender, RoutedEventArgs e)
+        {
+            var window = new Views.HistoryWindow { Owner = this };
+            window.Show();
         }
 
         private void ThemeToggleButton_Click(object sender, RoutedEventArgs e)
@@ -363,6 +372,15 @@ namespace BluedropWindows.Views
                     ClipboardImageUtils.SetClipboardPng(png);
                     window._lastClipboardImageHash = HashBytes(png);
                     window.SetStatus("Received clipboard image");
+                    TransferHistory.Add(new TransferRecord
+                    {
+                        Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                        Direction = "received",
+                        Kind = "image",
+                        Name = "clipboard image",
+                        Size = png.Length,
+                        Mime = "image/png",
+                    });
                     NotificationHelper.ShowSimpleNotification("Bluedrop", "Image received and copied to clipboard");
                 }
                 finally
@@ -475,6 +493,11 @@ namespace BluedropWindows.Views
                     transfer.Stream.Write(data, 0, data.Length);
                     transfer.Received += data.Length;
                     transfer.ExpectedIndex++;
+                    if (transfer.Meta.Size > 0)
+                    {
+                        var pct = (int)(transfer.Received * 100 / transfer.Meta.Size);
+                        SetStatus($"Receiving {transfer.Meta.Name}… {pct}%");
+                    }
                     session?.SendFileAck(new FileAck { Id = transfer.Meta.Id, Received = transfer.Received });
                     if (transfer.Received >= transfer.Meta.Size)
                     {
@@ -506,6 +529,16 @@ namespace BluedropWindows.Views
                 });
                 SetStatus($"Received {transfer.Meta.Name}");
                 NotificationHelper.ShowSimpleNotification("Bluedrop", $"File received: {target}");
+                TransferHistory.Add(new TransferRecord
+                {
+                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    Direction = "received",
+                    Kind = "file",
+                    Name = transfer.Meta.Name,
+                    Size = transfer.Meta.Size,
+                    Path = target,
+                    Mime = transfer.Meta.Mime,
+                });
             }
             catch (Exception ex)
             {
@@ -586,6 +619,18 @@ namespace BluedropWindows.Views
             if (sent > 0)
             {
                 SetStatus($"Clipboard shared with {sent}/{targets.Count} devices");
+                if (png != null)
+                {
+                    TransferHistory.Add(new TransferRecord
+                    {
+                        Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                        Direction = "sent",
+                        Kind = "image",
+                        Name = "clipboard image",
+                        Size = png.Length,
+                        Mime = "image/png",
+                    });
+                }
                 if (text != null) _lastClipboardContent = text;
                 if (png != null) _lastClipboardImageHash = HashBytes(png);
             }
@@ -661,20 +706,36 @@ namespace BluedropWindows.Views
                         foreach (var session in sessions)
                         {
                             await using var fs = File.OpenRead(file);
-                            var sent = await session.SendFileAsync(meta, (offset, count) =>
-                            {
-                                fs.Position = offset;
-                                var buf = new byte[count];
-                                var read = 0;
-                                while (read < count)
+                            var sent = await session.SendFileAsync(
+                                meta,
+                                (offset, count) =>
                                 {
-                                    var n = fs.Read(buf, read, count - read);
-                                    if (n <= 0) break;
-                                    read += n;
-                                }
-                                return read == count ? buf : null;
-                            });
+                                    fs.Position = offset;
+                                    var buf = new byte[count];
+                                    var read = 0;
+                                    while (read < count)
+                                    {
+                                        var n = fs.Read(buf, read, count - read);
+                                        if (n <= 0) break;
+                                        read += n;
+                                    }
+                                    return read == count ? buf : null;
+                                },
+                                (done, total) => SetStatus(
+                                    $"Sending {info.Name}… {(int)(done * 100 / total)}%"));
                             if (sent > 0) okCount++;
+                        }
+                        if (okCount > 0)
+                        {
+                            TransferHistory.Add(new TransferRecord
+                            {
+                                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                                Direction = "sent",
+                                Kind = "file",
+                                Name = info.Name,
+                                Size = info.Length,
+                                Mime = meta.Mime,
+                            });
                         }
                         SetStatus(okCount > 0
                             ? $"Sent {info.Name} to {okCount}/{sessions.Count} device(s)"

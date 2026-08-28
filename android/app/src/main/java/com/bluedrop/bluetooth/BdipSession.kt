@@ -264,6 +264,7 @@ class BdipSession(
     suspend fun sendFile(
         meta: FileMeta,
         readChunk: (offset: Long, count: Int) -> ByteArray,
+        onProgress: ((received: Long, total: Long) -> Unit)? = null,
     ): Long {
         writeChannel.send(FrameCodec.encode(Bdip.TYPE_FILE_META, meta.encode()))
         var offset = 0L
@@ -279,6 +280,7 @@ class BdipSession(
             if (ack.id != meta.id || ack.error != null) return -1
             offset += count
             index++
+            onProgress?.invoke(offset, meta.size)
             if (ack.done == true) return meta.size // receiver combined the final ack
         }
         // the receiver's final ack carries done=true

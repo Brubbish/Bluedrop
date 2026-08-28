@@ -160,3 +160,34 @@ fun sharingResultNotification(title: String, text: String, context: Context) {
         }
     }
 }
+
+/** Ongoing progress notification for transfers above 1 MiB (id fixed so it updates in place). */
+private const val TRANSFER_PROGRESS_NOTIFICATION_ID = 2000
+
+fun showTransferProgressNotification(context: Context, title: String, received: Long, total: Long) {
+    if (total <= 0) return
+    val percent = ((received * 100) / total).toInt().coerceIn(0, 100)
+    val notification = NotificationCompat.Builder(context, channelId)
+        .setContentTitle(title)
+        .setContentText("$percent% — " + humanSize(received) + " / " + humanSize(total))
+        .setProgress(100, percent, false)
+        .setSmallIcon(R.mipmap.ic_launcher)
+        .setOngoing(true)
+        .setOnlyAlertOnce(true)
+        .build()
+    if (ActivityCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
+        == PackageManager.PERMISSION_GRANTED
+    ) {
+        NotificationManagerCompat.from(context).notify(TRANSFER_PROGRESS_NOTIFICATION_ID, notification)
+    }
+}
+
+fun cancelTransferProgressNotification(context: Context) {
+    NotificationManagerCompat.from(context).cancel(TRANSFER_PROGRESS_NOTIFICATION_ID)
+}
+
+private fun humanSize(bytes: Long): String = when {
+    bytes >= 1024 * 1024 -> "%.1f MB".format(bytes / (1024.0 * 1024.0))
+    bytes >= 1024 -> "%.0f KB".format(bytes / 1024.0)
+    else -> "$bytes B"
+}

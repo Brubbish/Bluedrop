@@ -401,8 +401,14 @@
 
                     <Button
                         x:Name="StopServiceButton"
+                        Margin="0,0,10,0"
                         Content="Stop Service"
                         Style="{StaticResource StopButtonStyle}" />
+
+                    <Button
+                        x:Name="HistoryButton"
+                        Content="History"
+                        Style="{StaticResource RefreshButtonStyle}" />
                 </StackPanel>
 
                 <!-- Status Bar -->

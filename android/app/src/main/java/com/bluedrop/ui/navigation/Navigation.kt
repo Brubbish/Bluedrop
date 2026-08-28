@@ -6,6 +6,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.bluedrop.ui.screen.BluetoothScannerScreen
+import com.bluedrop.ui.screen.HistoryScreen
 import com.bluedrop.ui.screen.MainScreen
 import com.bluedrop.ui.screen.SettingsScreen
 import com.bluedrop.ui.screen.SupportScreen
@@ -54,6 +55,10 @@ fun Navigation(
             )
         }
 
+        composable<Screens.HistoryScreen> {
+            HistoryScreen(navController = navController)
+        }
+
         composable<Screens.BluetoothScannerScreen> {
             BluetoothScannerScreen(
                 navController = navController,
@@ -79,4 +84,7 @@ object Screens {
 
     @Serializable
     object BluetoothScannerScreen
+
+    @Serializable
+    object HistoryScreen
 }
