@@ -27,13 +27,16 @@ jobs:
           java-version: "21"
 
       - name: Set up release signing from secrets (optional)
-        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "No signing secrets configured; release will use keystores/ci.keystore"
+            exit 0
+          fi
           echo "$KEYSTORE_BASE64" | base64 -d > "$GITHUB_WORKSPACE/release.keystore"
           cat > local.properties <<EOF
           STORE_FILE=$GITHUB_WORKSPACE/release.keystore
@@ -66,8 +69,10 @@ jobs:
 
       - name: Sign check
         id: sign
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
-          if [ -n "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ]; then
+          if [ -n "$KEYSTORE_BASE64" ]; then
             echo "mode=release key from secrets" >> "$GITHUB_OUTPUT"
           else
             echo "mode=CI convenience key (keystores/ci.keystore) — fine for personal installs, do not distribute as official" >> "$GITHUB_OUTPUT"
