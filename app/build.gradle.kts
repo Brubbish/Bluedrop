@@ -25,10 +25,24 @@ android {
         applicationId = "com.bluedrop"
         minSdk = 24
         targetSdk = 36
-        versionCode = 7
-        versionName = "1.3.2"
+        // CI injects -PbuildVersionCode/-PbuildVersionName so every build
+        // has a monotonically increasing, identifiable version
+        versionCode = (project.findProperty("buildVersionCode") as String?)?.toInt() ?: 7
+        versionName = (project.findProperty("buildVersionName") as String?) ?: "1.3.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    splits {
+        abi {
+            // the app is pure managed code today, so both APKs are identical
+            // in content; keeping the split names the phone-friendly build and
+            // future-proofs packaging if native libs land later
+            isEnable = true
+            reset()
+            include("arm64-v8a")
+            isUniversalApk = true
+        }
     }
 
     testOptions {
@@ -37,12 +51,21 @@ android {
 
     signingConfigs {
         val storeFilePath = localProperties.getProperty("STORE_FILE")
-        if (storeFilePath != null) {
-            create("release") {
+        val ciKeystore = rootProject.file("keystores/ci.keystore")
+        when {
+            storeFilePath != null -> create("release") {
                 storeFile = file(storeFilePath)
                 storePassword = localProperties.getProperty("STORE_PASSWORD")
                 keyAlias = localProperties.getProperty("KEY_ALIAS")
                 keyPassword = localProperties.getProperty("KEY_PASSWORD")
+            }
+
+            ciKeystore.exists() -> create("release") {
+                // convenience key for personal CI builds; see keystores/README.md
+                storeFile = ciKeystore
+                storePassword = "bluedrop-ci"
+                keyAlias = "bluedrop-ci"
+                keyPassword = "bluedrop-ci"
             }
         }
     }
