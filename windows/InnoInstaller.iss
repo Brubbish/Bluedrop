@@ -1,7 +1,7 @@
 ; Script for Bluedrop Installer
 #define MyAppName "Bluedrop"
 #ifndef AppVersion
-#define AppVersion "1.4.0-dev"
+#define AppVersion "1.5.0-dev"
 #endif
 #define MyAppPublisher "Brubbish"
 #define MyAppVersion AppVersion
