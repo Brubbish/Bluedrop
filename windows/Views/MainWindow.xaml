@@ -11,7 +11,7 @@
     xmlns:behaviors="clr-namespace:BluedropWindows.Behaviors"
     Title="Bluedrop"
     Width="550"
-    Icon="..\Assets\app.ico"
+    Icon="pack://application:,,,/Assets/app.ico"
     Height="650"
     AllowDrop="True"
     Drop="Window_Drop"
