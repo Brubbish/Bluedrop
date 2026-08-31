@@ -578,15 +578,16 @@ namespace BluedropWindows.Views
 
         // ---------------------------------------------------------------- sending
 
-        private IEnumerable<BluetoothDeviceInfo> SelectedDevices() =>
-            DevicesListView.SelectedItems.Cast<BluetoothDeviceInfo>();
+        private List<BluetoothDeviceInfo> SelectedDevices() =>
+            DevicesListView.SelectedItems.Cast<BluetoothDeviceInfo>().ToList();
 
         private async void ShareButton_Click(object sender, RoutedEventArgs e)
         {
             ShareButton.IsEnabled = false;
+            var targets = SelectedDevices();
             try
             {
-                var ok = await Task.Run(SendClipboardNowAsync);
+                var ok = await SendClipboardNowAsync(targets);
                 if (!ok) SetStatus("Clipboard is empty or no reachable device");
             }
             finally
@@ -596,7 +597,7 @@ namespace BluedropWindows.Views
         }
 
         /// <summary>Sends the current clipboard: image if present, else text.</summary>
-        private async Task<bool> SendClipboardNowAsync()
+        private async Task<bool> SendClipboardNowAsync(List<BluetoothDeviceInfo>? targets = null)
         {
             byte[]? png = null;
             string? text = null;
@@ -604,11 +605,12 @@ namespace BluedropWindows.Views
             {
                 if (Clipboard.ContainsImage()) png = ClipboardImageUtils.GetClipboardPng();
                 if (png == null && Clipboard.ContainsText()) text = Clipboard.GetText();
+                targets ??= SelectedDevices();
             });
             if (png == null && string.IsNullOrEmpty(text)) return false;
 
             var sent = 0;
-            var targets = SelectedDevices().ToList();
+            targets ??= [];
             foreach (var device in targets)
             {
                 var session = await SessionOrDialAsync(device);

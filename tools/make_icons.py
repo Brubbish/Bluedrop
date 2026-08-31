@@ -11,6 +11,7 @@ Outputs:
 
 import math
 import os
+import struct
 from PIL import Image, ImageDraw, ImageFilter
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -204,18 +205,41 @@ def main():
     ps.save(os.path.join(REPO, "android", "app", "src", "main", "ic_launcher-playstore.png"), "PNG")
     print("wrote android/app/src/main/ic_launcher-playstore.png")
 
-    # Windows: same drop on the rounded-square tile, packed as a multi-size ICO
+    # Windows: generate a classic uncompressed 32-bit BGRA ICO. WPF's native
+    # decoder rejects the PNG-compressed ICO entries Pillow writes on newer
+    # versions, while this DIB form works on Windows 10/11 and old shells.
     ico = rounded_bg((256, 256), 0.22)
     ico.alpha_composite(
         draw_drop((256, 256), (256 * 0.24, 256 * 0.13, 256 * 0.76, 256 * 0.85))
     )
-    ico = ico.convert("RGB")  # ICO entries are opaque
-    ico.save(
-        ICO,
-        format="ICO",
-        sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)],
-    )
+    save_classic_ico(ico, ICO)
     print("wrote windows/Assets/app.ico")
+
+
+def save_classic_ico(image, path):
+    """Write a single-entry classic ICO using a 32-bit bottom-up BGRA DIB."""
+    image = image.convert("RGBA").resize((256, 256), Image.LANCZOS)
+    rgba = image.load()
+    width, height = image.size
+    # ICO DIB height includes the AND mask (same height again).
+    dib_header = struct.pack("<IiiHHIIiiII", 40, width, height * 2, 1, 32, 0,
+                             width * height * 4, 0, 0, 0, 0)
+    pixels = bytearray()
+    for y in range(height - 1, -1, -1):
+        for x in range(width):
+            r, g, b, a = rgba[x, y]
+            pixels.extend((b, g, r, a))
+    # 1-bit AND mask, padded to 32-bit scanlines. Alpha already carries the
+    # transparency, so all mask bits remain clear.
+    mask_row = ((width + 31) // 32) * 4
+    and_mask = bytes(mask_row * height)
+    dib = dib_header + bytes(pixels) + and_mask
+    # ICONDIR + one ICONDIRENTRY, followed by DIB data.
+    entry = struct.pack("<BBBBHHII", 0, 0, 0, 0, 1, 32, len(dib), 6 + 16)
+    with open(path, "wb") as fp:
+        fp.write(struct.pack("<HHH", 0, 1, 1))
+        fp.write(entry)
+        fp.write(dib)
 
 
 if __name__ == "__main__":
