@@ -73,7 +73,11 @@ Guiding decisions already made:
       time (spec §3.4); a new transfer waits for the current one.
 - [x] Per-file progress beyond the status bar (receive % on Windows; progress notifications on Android).
 - [x] Transfer history on both ends: list of files/images sent and received, remove record only, or delete record + stored file.
+- [x] Cancel in-flight transfers (progress notification action on Android, Cancel Transfer button on Windows; sender abort via error FILE_ACK).
+- [x] Type-to-send: text input on both ends (dialog on Android, inline box on Windows).
+- [x] History records text shares and failed/cancelled transfers with status + error.
 - [ ] Explorer context-menu entry.
+- [ ] True pause/resume of mid-file transfers — needs protocol v2 resume support.
 
 ## Phase 4 — Presence & integrations
 

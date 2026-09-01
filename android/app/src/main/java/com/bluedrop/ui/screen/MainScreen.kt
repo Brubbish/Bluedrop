@@ -51,6 +51,16 @@ import com.bluedrop.ui.component.ActionButtons
 import com.bluedrop.ui.component.CustomPullToRefreshBox
 import com.bluedrop.ui.component.DarkModeToggle
 import com.bluedrop.ui.component.DeviceItem
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.work.Data
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
+import com.bluedrop.workManagers.ShareClipboardWorker
 import com.bluedrop.ui.navigation.Screens
 import com.bluedrop.ui.theme.Typography
 import com.bluedrop.ui.viewModel.RecentDevicesViewModel
@@ -73,6 +83,8 @@ fun MainScreen(
     val scope = rememberCoroutineScope()
     val colorScheme = MaterialTheme.colorScheme
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    var showTypeToSend by remember { mutableStateOf(false) }
+
 
     val isServiceBound by Essentials.isServiceRunning.collectAsStateWithLifecycle()
     val selectedDeviceAddresses by Essentials.selectedDevices.collectAsStateWithLifecycle()
@@ -139,6 +151,15 @@ fun MainScreen(
                             )
 
                             Icon(
+                                Icons.Default.Edit,
+                                contentDescription = "Type to send",
+                                tint = colorScheme.onPrimaryContainer,
+                                modifier = Modifier
+                                    .size(25.dp)
+                                    .clickable { showTypeToSend = true }
+                            )
+
+                            Icon(
                                 Icons.Default.History,
                                 contentDescription = "Transfer history",
                                 tint = colorScheme.onPrimaryContainer,
@@ -164,6 +185,22 @@ fun MainScreen(
                 )
             }
         ) { padding ->
+            if (showTypeToSend) {
+                TypeToSendDialog(
+                    onDismiss = { showTypeToSend = false },
+                    onSend = { text ->
+                        showTypeToSend = false
+                        val inputData = Data.Builder()
+                            .putString(ShareClipboardWorker.KEY_CLIP_TEXT, text)
+                            .build()
+                        WorkManager.getInstance(context).enqueue(
+                            OneTimeWorkRequestBuilder<ShareClipboardWorker>()
+                                .setInputData(inputData)
+                                .build()
+                        )
+                    },
+                )
+            }
             Column(
                 modifier = Modifier
                     .padding(padding)

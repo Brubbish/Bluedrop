@@ -1,5 +1,6 @@
 package com.bluedrop.bluetooth
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -267,6 +268,26 @@ class BdipSession(
         onProgress: ((received: Long, total: Long) -> Unit)? = null,
     ): Long {
         writeChannel.send(FrameCodec.encode(Bdip.TYPE_FILE_META, meta.encode()))
+        return try {
+            sendFileLoop(meta, readChunk, onProgress)
+        } catch (e: CancellationException) {
+            // sender cancelled: tell the receiver to drop its temp file (the
+            // abort convention in docs/PROTOCOL.md §3.4.1)
+            writeChannel.trySend(
+                FrameCodec.encode(
+                    Bdip.TYPE_FILE_ACK,
+                    FileAck(id = meta.id, error = "cancelled by sender").encode(),
+                )
+            )
+            throw e
+        }
+    }
+
+    private suspend fun sendFileLoop(
+        meta: FileMeta,
+        readChunk: (offset: Long, count: Int) -> ByteArray,
+        onProgress: ((received: Long, total: Long) -> Unit)?,
+    ): Long {
         var offset = 0L
         var index = 0
         while (offset < meta.size) {
@@ -284,8 +305,8 @@ class BdipSession(
             if (ack.done == true) return meta.size // receiver combined the final ack
         }
         // the receiver's final ack carries done=true
-        val done = withTimeoutOrNull(chunkAckTimeoutMs) { ackChannel.receive() } ?: return -1
-        if (done.done != true || done.error != null) return -1
+        val done = withTimeoutOrNull(chunkAckTimeoutMs) { ackChannel.receive() } ?: return -1L
+        if (done.done != true || done.error != null) return -1L
         return meta.size
     }
 

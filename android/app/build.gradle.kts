@@ -27,8 +27,8 @@ android {
         targetSdk = 36
         // CI injects -PbuildVersionCode/-PbuildVersionName so every build
         // has a monotonically increasing, identifiable version
-        versionCode = (project.findProperty("buildVersionCode") as String?)?.toInt() ?: 8
-        versionName = (project.findProperty("buildVersionName") as String?) ?: "1.5.0"
+        versionCode = (project.findProperty("buildVersionCode") as String?)?.toInt() ?: 9
+        versionName = (project.findProperty("buildVersionName") as String?) ?: "1.6.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

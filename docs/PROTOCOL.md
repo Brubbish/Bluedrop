@@ -209,6 +209,12 @@ transfer, and `{"id": "...", "done": true, "path": "…"}` on success or
 
 Rules:
 
+- **Sender abort (v1-compatible convention):** a sender may abandon a
+  transfer mid-stream by sending `FILE_ACK {"id": "...", "error": "cancelled
+  by sender"}`. A receiver that gets an error ack matching its current
+  incoming transfer must delete the temp file and discard the transfer.
+  Receivers that predate this convention ignore the frame and clean up on
+  session close instead — no version bump required.
 - **One file transfer per session at a time**; queue additional files. Clipboard
   frames may interleave with chunks — receivers must handle interleaving.
 - Chunk size: 60 KiB (`61440`). May be smaller for the final chunk only.

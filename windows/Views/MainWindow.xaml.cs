@@ -29,6 +29,19 @@ namespace BluedropWindows.Views
         // Outbound transfers serialize process-wide (spec: one at a time)
         private readonly SemaphoreSlim _sendQueue = new(1, 1);
 
+        // batch cancel: checked between chunks by the send progress callback
+        private volatile bool _cancelBatch;
+
+        private void CancelTransferButton_Click(object sender, RoutedEventArgs e)
+        {
+            _cancelBatch = true;
+            foreach (var (address, transfer) in _incoming.ToList())
+            {
+                FailIncoming(address, transfer, "cancelled on this device");
+            }
+            SetStatus("Cancelling…");
+        }
+
         // Incoming transfer state per session key
         private sealed class IncomingTransfer
         {
@@ -62,6 +75,7 @@ namespace BluedropWindows.Views
             SendFileButton.Click += SendFileButton_Click;
             ThemeToggleButton.Click += ThemeToggleButton_Click;
             HistoryButton.Click += HistoryButton_Click;
+            CancelTransferButton.Click += CancelTransferButton_Click;
             SettingsButton.Click += SettingsButton_Click;
 
             LoadPairedDevices();
@@ -91,6 +105,64 @@ namespace BluedropWindows.Views
             _clipboardMonitorTimer.Start();
 
             Closed += (_, _) => StopListeningService();
+        }
+
+        private async void SendTypedTextButton_Click(object sender, RoutedEventArgs e) =>
+            await SendTypedTextAsync();
+
+        private async void TypedText_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+        {
+            if (e.Key == System.Windows.Input.Key.Enter)
+            {
+                await SendTypedTextAsync();
+            }
+        }
+
+        /// <summary>Sends the typed text to the selected devices and mirrors it
+        /// into the system clipboard for easy pasting.</summary>
+        private async Task SendTypedTextAsync()
+        {
+            var text = Dispatcher.Invoke(() =>
+            {
+                var value = TypedTextBox.Text;
+                if (!string.IsNullOrWhiteSpace(value))
+                {
+                    _isReceivingClipboard = true;
+                    try
+                    {
+                        Clipboard.SetText(value);
+                        _lastClipboardContent = value;
+                        _lastClipboardImageHash = null;
+                    }
+                    finally { _isReceivingClipboard = false; }
+                    TypedTextBox.Clear();
+                }
+                return value;
+            });
+            if (string.IsNullOrWhiteSpace(text)) return;
+
+            var targets = SelectedDevices();
+            var sent = 0;
+            foreach (var device in targets)
+            {
+                var session = await SessionOrDialAsync(device);
+                if (session == null) continue;
+                if (session.SendClipboardText(text)) sent++;
+            }
+            TransferHistory.Add(new TransferRecord
+            {
+                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                Direction = "sent",
+                Kind = "text",
+                Name = text.Length > 60 ? text[..60] : text,
+                Size = Encoding.UTF8.GetByteCount(text),
+                Mime = "text/plain",
+                Status = sent > 0 ? "ok" : "failed",
+                Error = sent > 0 ? null : "no reachable device",
+            });
+            SetStatus(sent > 0
+                ? $"Text sent to {sent}/{targets.Count} device(s)"
+                : "No reachable device");
         }
 
         private void HistoryButton_Click(object sender, RoutedEventArgs e)
@@ -362,7 +434,19 @@ namespace BluedropWindows.Views
                 window.SetStatus($"Session established with {peer.Name}");
             }
 
-            public void OnClipboardText(string text) => window.ApplyRemoteText(text);
+            public void OnClipboardText(string text)
+            {
+                window.ApplyRemoteText(text);
+                TransferHistory.Add(new TransferRecord
+                {
+                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    Direction = "received",
+                    Kind = "text",
+                    Name = text.Length > 60 ? text[..60] : text,
+                    Size = Encoding.UTF8.GetByteCount(text),
+                    Mime = "text/plain",
+                });
+            }
 
             public void OnClipboardImage(byte[] png)
             {
@@ -393,7 +477,16 @@ namespace BluedropWindows.Views
 
             public void OnFileChunk(int index, byte[] data) => window.HandleIncomingChunk(address, index, data);
 
-            public void OnFileAck(FileAck ack) { /* progress surface only for now */ }
+            public void OnFileAck(FileAck ack)
+            {
+                // senders consume progress acks; an error ack addressed to the
+                // current incoming transfer means the peer aborted the send
+                if (ack.Error is { Length: > 0 } && window._incoming.TryGetValue(address, out var incoming)
+                    && incoming.Meta.Id == ack.Id)
+                {
+                    window.FailIncoming(address, incoming, ack.Error);
+                }
+            }
 
             public void OnClosed(string reason)
             {
@@ -538,6 +631,7 @@ namespace BluedropWindows.Views
                     Size = transfer.Meta.Size,
                     Path = target,
                     Mime = transfer.Meta.Mime,
+                    Status = "ok",
                 });
             }
             catch (Exception ex)
@@ -553,6 +647,17 @@ namespace BluedropWindows.Views
             _incoming.TryRemove(address, out _);
             _sessions.GetValueOrDefault(address)?.SendFileAck(new FileAck { Id = transfer.Meta.Id, Error = error });
             SetStatus($"Transfer failed: {error}");
+            TransferHistory.Add(new TransferRecord
+            {
+                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                Direction = "received",
+                Kind = "file",
+                Name = transfer.Meta.Name,
+                Size = transfer.Received,
+                Mime = transfer.Meta.Mime,
+                Status = "failed",
+                Error = error,
+            });
         }
 
         private void CleanupIncoming(string address)
@@ -631,6 +736,20 @@ namespace BluedropWindows.Views
                         Name = "clipboard image",
                         Size = png.Length,
                         Mime = "image/png",
+                        Status = "ok",
+                    });
+                }
+                if (text != null)
+                {
+                    TransferHistory.Add(new TransferRecord
+                    {
+                        Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                        Direction = "sent",
+                        Kind = "text",
+                        Name = text.Length > 60 ? text[..60] : text,
+                        Size = Encoding.UTF8.GetByteCount(text),
+                        Mime = "text/plain",
+                        Status = "ok",
                     });
                 }
                 if (text != null) _lastClipboardContent = text;
@@ -665,6 +784,7 @@ namespace BluedropWindows.Views
         private async Task SendFilesAsync(IEnumerable<string> files)
         {
             SendFileButton.IsEnabled = false;
+            _cancelBatch = false;
             try
             {
                 var targets = SelectedDevices().ToList();
@@ -705,40 +825,49 @@ namespace BluedropWindows.Views
                         };
                         SetStatus($"Sending {info.Name}…");
                         var okCount = 0;
+                        var cancelled = false;
                         foreach (var session in sessions)
                         {
                             await using var fs = File.OpenRead(file);
-                            var sent = await session.SendFileAsync(
-                                meta,
-                                (offset, count) =>
-                                {
-                                    fs.Position = offset;
-                                    var buf = new byte[count];
-                                    var read = 0;
-                                    while (read < count)
+                            long sent;
+                            try
+                            {
+                                sent = await session.SendFileAsync(
+                                    meta,
+                                    (offset, count) =>
                                     {
-                                        var n = fs.Read(buf, read, count - read);
-                                        if (n <= 0) break;
-                                        read += n;
-                                    }
-                                    return read == count ? buf : null;
-                                },
-                                (done, total) => SetStatus(
-                                    $"Sending {info.Name}… {(int)(done * 100 / total)}%"));
+                                        fs.Position = offset;
+                                        var buf = new byte[count];
+                                        var read = 0;
+                                        while (read < count)
+                                        {
+                                            var n = fs.Read(buf, read, count - read);
+                                            if (n <= 0) break;
+                                            read += n;
+                                        }
+                                        return read == count ? buf : null;
+                                    },
+                                    (done, total) =>
+                                    {
+                                        if (_cancelBatch) throw new OperationCanceledException();
+                                        SetStatus($"Sending {info.Name}… {(int)(done * 100 / total)}%");
+                                    });
+                            }
+                            catch (OperationCanceledException)
+                            {
+                                cancelled = true;
+                                sent = -1;
+                            }
                             if (sent > 0) okCount++;
                         }
-                        if (okCount > 0)
+                        if (cancelled)
                         {
-                            TransferHistory.Add(new TransferRecord
-                            {
-                                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                                Direction = "sent",
-                                Kind = "file",
-                                Name = info.Name,
-                                Size = info.Length,
-                                Mime = meta.Mime,
-                            });
+                            RecordSent(info.Name, info.Length, meta.Mime, failed: true, error: "cancelled");
+                            SetStatus("Batch cancelled");
+                            return;
                         }
+                        RecordSent(info.Name, info.Length, meta.Mime, failed: okCount == 0,
+                            error: okCount == 0 ? "send failed" : null);
                         SetStatus(okCount > 0
                             ? $"Sent {info.Name} to {okCount}/{sessions.Count} device(s)"
                             : $"Failed to send {info.Name}");
@@ -752,8 +881,22 @@ namespace BluedropWindows.Views
             finally
             {
                 SendFileButton.IsEnabled = true;
+                _cancelBatch = false;
             }
         }
+
+        private static void RecordSent(string name, long size, string mime, bool failed, string? error) =>
+            TransferHistory.Add(new TransferRecord
+            {
+                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                Direction = "sent",
+                Kind = "file",
+                Name = name,
+                Size = size,
+                Mime = mime,
+                Status = failed ? "failed" : "ok",
+                Error = error,
+            });
 
         private static string MimeFor(string extension) => extension.ToLowerInvariant() switch
         {

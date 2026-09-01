@@ -15,6 +15,7 @@ import androidx.core.app.NotificationManagerCompat
 import com.bluedrop.R
 import com.bluedrop.activities.MainActivity
 import com.bluedrop.activities.ShareClipboardActivity
+import com.bluedrop.bluetooth.BluetoothService
 
 const val channelId = "BluedropServiceChannel"
 
@@ -167,6 +168,14 @@ private const val TRANSFER_PROGRESS_NOTIFICATION_ID = 2000
 fun showTransferProgressNotification(context: Context, title: String, received: Long, total: Long) {
     if (total <= 0) return
     val percent = ((received * 100) / total).toInt().coerceIn(0, 100)
+
+    val cancelIntent = Intent(context, NotificationReceiver::class.java).apply {
+        action = "ACTION_CANCEL_TRANSFER"
+    }
+    val cancelPendingIntent = PendingIntent.getBroadcast(
+        context, 5, cancelIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+    )
+
     val notification = NotificationCompat.Builder(context, channelId)
         .setContentTitle(title)
         .setContentText("$percent% — " + humanSize(received) + " / " + humanSize(total))
@@ -174,6 +183,7 @@ fun showTransferProgressNotification(context: Context, title: String, received: 
         .setSmallIcon(R.mipmap.ic_launcher)
         .setOngoing(true)
         .setOnlyAlertOnce(true)
+        .addAction(0, "Cancel", cancelPendingIntent)
         .build()
     if (ActivityCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
         == PackageManager.PERMISSION_GRANTED

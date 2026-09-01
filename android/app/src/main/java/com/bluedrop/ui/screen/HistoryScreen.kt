@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Close
@@ -224,8 +225,11 @@ private fun TransferRow(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        imageVector = if (record.kind == "image") Icons.Default.Image
-                        else Icons.Default.InsertDriveFile,
+                        imageVector = when (record.kind) {
+                            "image" -> Icons.Default.Image
+                            "text" -> Icons.AutoMirrored.Filled.Chat
+                            else -> Icons.Default.InsertDriveFile
+                        },
                         contentDescription = record.kind,
                         tint = colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(15.dp)
@@ -238,6 +242,14 @@ private fun TransferRow(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.padding(start = 5.dp)
                     )
+                    if (record.status == "failed") {
+                        Text(
+                            "· failed",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = colorScheme.error,
+                        )
+                    }
                 }
                 Text(
                     "${humanSize(record.size)} · " +
@@ -245,6 +257,13 @@ private fun TransferRow(
                     fontSize = 12.sp,
                     color = colorScheme.onSurfaceVariant
                 )
+                if (record.status == "failed" && record.error != null) {
+                    Text(
+                        record.error,
+                        fontSize = 12.sp,
+                        color = colorScheme.error
+                    )
+                }
             }
             if (record.uri != null) {
                 IconButton(onClick = onDeleteFile) {

@@ -13,13 +13,16 @@ public record TransferRecord
     [JsonPropertyName("kind")] public string Kind { get; init; } = "file"; // file|image
     [JsonPropertyName("name")] public string Name { get; init; } = "";
     [JsonPropertyName("size")] public long Size { get; init; }
-    [JsonPropertyName("path")] public string? Path { get; init; } // on-disk payload; null for sent items
+    [JsonPropertyName("path")] public string? Path { get; init; } // on-disk payload; null for sent/text items
     [JsonPropertyName("mime")] public string Mime { get; init; } = "application/octet-stream";
+    [JsonPropertyName("status")] public string Status { get; init; } = "ok"; // ok|failed; default keeps old files readable
+    [JsonPropertyName("error")] public string? Error { get; init; }
 }
 
 /// <summary>
-/// Transfer history persisted to %APPDATA%\Bluedrop\history.json. Text
-/// clipboard pushes are not recorded — files and clipboard images only.
+/// Transfer history persisted to %APPDATA%\Bluedrop\history.json. Records
+/// file/image/text transfers in both directions, including failed/cancelled
+/// ones (Status = "failed").
 /// </summary>
 public static class TransferHistory
 {

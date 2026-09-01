@@ -10,7 +10,14 @@ import com.bluedrop.core.copyToClipboard
 class NotificationReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         when (intent.action) {
-            "ACTION_DISMISS" -> {
+            "ACTION_CANCEL_TRANSFER" -> {
+            val service = Intent(context, BluetoothService::class.java).apply {
+                action = "ACTION_CANCEL_TRANSFER"
+            }
+            context.startService(service)
+        }
+
+        "ACTION_DISMISS" -> {
                 val serviceIntent = Intent(context, BluetoothService::class.java)
                 context.stopService(serviceIntent)
 

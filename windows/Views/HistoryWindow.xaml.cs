@@ -14,8 +14,10 @@ public partial class HistoryWindow : Window
         public string Name => record.Name;
         public string DirectionGlyph => record.Direction == "sent" ? "⬆" : "⬇";
         public string Detail =>
-            $"{HumanSize(record.Size)} · {DirectionLabel()} · {KindLabel()} · " +
+            (record.Status == "failed" ? "FAILED" : HumanSize(record.Size)) +
+            $" · {DirectionLabel()} · {KindLabel()} · " +
             $"{DateTimeOffset.FromUnixTimeMilliseconds(record.Timestamp).LocalDateTime:yyyy-MM-dd HH:mm}" +
+            (record.Error is { Length: > 0 } ? $" · {record.Error}" : "") +
             (record.Path is { Length: > 0 } ? $" · {record.Path}" : "");
         public Visibility DeleteFileVisibility =>
             record.Path is { Length: > 0 } ? Visibility.Visible : Visibility.Collapsed;

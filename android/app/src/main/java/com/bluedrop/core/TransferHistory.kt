@@ -11,20 +11,22 @@ import kotlinx.serialization.json.Json
 import java.io.File
 
 /**
- * Transfer history shown in the app's History screen. Records every completed
- * file/image transfer (both directions); plain-text clipboard pushes are not
- * recorded. One JSON file in app-private storage, capped at [MAX_RECORDS].
+ * Transfer history shown in the app's History screen. Records file/image/text
+ * transfers in both directions, including failed/cancelled ones ([status] =
+ * "failed"). One JSON file in app-private storage, capped at [MAX_RECORDS].
  */
 @Serializable
 data class TransferRecord(
     val id: String,
     val timestamp: Long,
     val direction: String, // "sent" | "received"
-    val kind: String,      // "file" | "image"
+    val kind: String,      // "file" | "image" | "text"
     val name: String,
     val size: Long,
-    val uri: String? = null, // content:// of the stored payload; null for sent items
+    val uri: String? = null, // content:// of the stored payload; null for sent/text items
     val mime: String = "application/octet-stream",
+    val status: String = "ok", // "ok" | "failed"; default keeps old JSON files readable
+    val error: String? = null,
 )
 
 object TransferHistory {

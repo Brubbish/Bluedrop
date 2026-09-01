@@ -4,6 +4,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.After
@@ -222,6 +223,33 @@ class BdipSessionTest {
         assertArrayEquals(data, receiver2.received.toByteArray())
         initiator2.shutdown()
         responder2.shutdown()
+    }
+
+    @Test
+    fun `cancelling a send aborts with an error ack to the receiver`() = runBlocking {
+        val data = ByteArray(200_000) { (it % 197).toByte() } // 4 chunks
+        val meta = FileMeta(
+            id = "cancel1", name = "abort.bin", size = data.size.toLong(),
+            chunks = 4, mime = "application/octet-stream",
+        )
+        // the responder records but never acks, so the send stalls after chunk 0
+        val sendJob = scope.launch {
+            initiator.sendFile(
+                meta,
+                { offset, count -> data.copyOfRange(offset.toInt(), (offset + count).toInt()) }
+            )
+        }
+        withTimeout(5_000) {
+            while (responderListener.chunks.isEmpty()) kotlinx.coroutines.delay(10)
+        }
+        sendJob.cancel()
+        withTimeout(5_000) {
+            while (responderListener.acks.none { it.error != null && it.id == "cancel1" }) {
+                kotlinx.coroutines.delay(10)
+            }
+        }
+        val abort = responderListener.acks.first { it.error != null && it.id == "cancel1" }
+        assertEquals("cancelled by sender", abort.error)
     }
 
     @Test

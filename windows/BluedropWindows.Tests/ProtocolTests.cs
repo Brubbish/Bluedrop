@@ -90,6 +90,7 @@ public class BdipSessionTests
         public readonly List<byte[]> Images = [];
         public readonly List<FileMeta> Metas = [];
         public readonly List<(int, byte[])> Chunks = [];
+        public readonly List<FileAck> Acks = [];
         public HelloInfo? Peer;
         public string? ClosedReason;
 
@@ -98,7 +99,7 @@ public class BdipSessionTests
         public void OnClipboardImage(byte[] png) => Images.Add(png);
         public void OnFileMeta(FileMeta meta) => Metas.Add(meta);
         public void OnFileChunk(int index, byte[] data) => Chunks.Add((index, data));
-        public void OnFileAck(FileAck ack) { }
+        public void OnFileAck(FileAck ack) => Acks.Add(ack);
         public void OnClosed(string reason) => ClosedReason = reason;
     }
 
@@ -147,6 +148,61 @@ public class BdipSessionTests
         Assert.False(initiator.SendClipboardText(tooBig));
         initiator.Shutdown();
         responder.Shutdown();
+    }
+
+    [Fact]
+    public async Task ThrowingFromOnProgressAbortsSendWithErrorAck()
+    {
+        var pipe = new DuplexPipePair();
+        BdipSession? responderRef = null;
+        long received = 0;
+        FileMeta? inboundMeta = null;
+        var abortAcks = new List<FileAck>();
+        var acker = new DelegatingListener(
+            onFileMeta: m => { inboundMeta = m; received = 0; },
+            onFileChunk: (_, data) =>
+            {
+                received += data.Length;
+                responderRef!.SendFileAck(new FileAck { Id = inboundMeta!.Id, Received = received });
+            },
+            onFileAck: ack =>
+            {
+                if (ack.Error is { Length: > 0 }) abortAcks.Add(ack);
+            });
+
+        var initiator = new BdipSession(pipe.A, () => { }, new RecordingListener(),
+            new HelloInfo { Name = "i" }, BdipRole.Initiator);
+        var responder = new BdipSession(pipe.B, () => { }, acker,
+            new HelloInfo { Name = "r" }, BdipRole.Responder);
+        responderRef = responder;
+        initiator.Start();
+        responder.Start();
+        await initiator.AwaitEstablishedAsync(new CancellationTokenSource(5000).Token);
+
+        var data = new byte[200_000]; // 4 chunks at 60 KiB
+        var meta = new FileMeta { Id = "abort1", Name = "abort.bin", Size = data.Length, Chunks = 4 };
+        await Assert.ThrowsAsync<OperationCanceledException>(() => initiator.SendFileAsync(
+            meta,
+            (offset, count) => data[(int)offset..(int)(offset + count)],
+            (_, _) => throw new OperationCanceledException()));
+
+        await WaitUntil(() => abortAcks.Any(a => a.Error == "cancelled by sender" && a.Id == "abort1"));
+        initiator.Shutdown();
+        responder.Shutdown();
+    }
+
+    private sealed class DelegatingListener(
+        Action<FileMeta>? onFileMeta = null,
+        Action<int, byte[]>? onFileChunk = null,
+        Action<FileAck>? onFileAck = null) : IBdipListener
+    {
+        public void OnEstablished(HelloInfo peer) { }
+        public void OnClipboardText(string text) { }
+        public void OnClipboardImage(byte[] png) { }
+        public void OnFileMeta(FileMeta meta) => onFileMeta?.Invoke(meta);
+        public void OnFileChunk(int index, byte[] data) => onFileChunk?.Invoke(index, data);
+        public void OnFileAck(FileAck ack) => onFileAck?.Invoke(ack);
+        public void OnClosed(string reason) { }
     }
 
     private static async Task WaitUntil(Func<bool> condition, int timeoutMs = 5000)

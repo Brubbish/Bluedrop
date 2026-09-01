@@ -27,6 +27,7 @@ import com.bluedrop.notification.createNotificationChannel
 import com.bluedrop.notification.createServiceNotification
 import com.bluedrop.notification.showReceivedNotification
 import com.bluedrop.notification.showFileReceivedNotification
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.Dispatchers
@@ -66,7 +67,7 @@ class BluetoothService : Service() {
         private const val CONNECT_TIMEOUT_MS = 10_000L
         private const val RECONNECT_BASE_MS = 1_000L
         private const val RECONNECT_CAP_MS = 30_000L
-        private const val PROGRESS_NOTIFICATION_MIN_BYTES = 1L * 1024 * 1024
+        const val ACTION_CANCEL_TRANSFER = "ACTION_CANCEL_TRANSFER"
     }
 
     private val serviceScope = CoroutineScope(
@@ -98,6 +99,17 @@ class BluetoothService : Service() {
             cancelErrorNotification()
             if (autoCopyEnabled) copyToClipboard(text, this@BluetoothService)
             else showReceivedNotification(text, this@BluetoothService)
+            TransferHistory.add(
+                TransferRecord(
+                    id = UUID.randomUUID().toString(),
+                    timestamp = System.currentTimeMillis(),
+                    direction = "received",
+                    kind = "text",
+                    name = text.take(60),
+                    size = text.toByteArray(Charsets.UTF_8).size.toLong(),
+                    mime = "text/plain",
+                )
+            )
         }
 
         override fun onClipboardImage(png: ByteArray) {
@@ -124,6 +136,8 @@ class BluetoothService : Service() {
         }
 
         override fun onFileMeta(meta: FileMeta) {
+            incoming?.tempFile?.delete() // previous abandoned transfer leaks otherwise
+            cancelInbound = false
             incoming = IncomingTransfer(meta)
         }
 
@@ -134,12 +148,14 @@ class BluetoothService : Service() {
                 failTransfer("out-of-order chunk $index (expected ${entry.expectedIndex})")
                 return
             }
-            if (meta.size >= PROGRESS_NOTIFICATION_MIN_BYTES) {
-                showTransferProgressNotification(
-                    this@BluetoothService, "Receiving " + meta.name,
-                    entry.received + data.size, meta.size,
-                )
+            if (cancelInbound) {
+                failTransfer("cancelled on this device")
+                return
             }
+            showTransferProgressNotification(
+                this@BluetoothService, "Receiving " + meta.name,
+                entry.received + data.size, meta.size,
+            )
             val out = entry.tempFile ?: File(cacheDir, "bluedrop-${meta.id}").also {
                 entry.tempFile = it
             }
@@ -151,7 +167,11 @@ class BluetoothService : Service() {
         }
 
         override fun onFileAck(ack: FileAck) {
-            // consumed by BdipSession.sendFile; progress UI can observe here
+            // senders consume progress acks; an error ack addressed to the
+            // current incoming transfer means the peer aborted the send
+            if (ack.error != null && incoming?.meta?.id == ack.id) {
+                failTransfer(ack.error)
+            }
         }
 
         override fun onClosed(reason: String) {
@@ -200,6 +220,19 @@ class BluetoothService : Service() {
         private fun failTransfer(message: String) {
             cancelTransferProgressNotification(this@BluetoothService)
             val meta = incoming?.meta ?: return
+            TransferHistory.add(
+                TransferRecord(
+                    id = meta.id,
+                    timestamp = System.currentTimeMillis(),
+                    direction = "received",
+                    kind = "file",
+                    name = meta.name,
+                    size = incoming?.received ?: 0,
+                    mime = meta.mime,
+                    status = "failed",
+                    error = message,
+                )
+            )
             Log.e(TAG, "Transfer of ${meta.name} failed: $message")
             incoming?.tempFile?.delete()
             incoming = null
@@ -242,8 +275,21 @@ class BluetoothService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startBluetoothServer()
+        if (intent?.action == ACTION_CANCEL_TRANSFER) {
+            cancelCurrentTransfers()
+        } else {
+            startBluetoothServer()
+        }
         return START_STICKY
+    }
+
+    /** One-shot flags checked between file chunks; cancellation stays UI-free. */
+    @Volatile private var cancelOutbound = false
+    @Volatile private var cancelInbound = false
+
+    private fun cancelCurrentTransfers() {
+        cancelOutbound = true
+        cancelInbound = true
     }
 
     override fun onBind(intent: Intent?): IBinder = binder
@@ -477,6 +523,19 @@ class BluetoothService : Service() {
             val session = sessionOrDial(address) ?: return@forEach
             anySuccess = session.sendClipboardText(text) || anySuccess
         }
+        TransferHistory.add(
+            TransferRecord(
+                id = UUID.randomUUID().toString(),
+                timestamp = System.currentTimeMillis(),
+                direction = "sent",
+                kind = "text",
+                name = text.take(60),
+                size = text.toByteArray(Charsets.UTF_8).size.toLong(),
+                mime = "text/plain",
+                status = if (anySuccess) "ok" else "failed",
+                error = if (anySuccess) null else "no reachable device",
+            )
+        )
         return if (anySuccess) SharingResult.SUCCESS else SharingResult.SENDING_ERROR
     }
 
@@ -491,19 +550,19 @@ class BluetoothService : Service() {
             val session = sessionOrDial(address) ?: return@forEach
             anySuccess = session.sendClipboardImage(png) || anySuccess
         }
-        if (anySuccess) {
-            TransferHistory.add(
-                TransferRecord(
-                    id = UUID.randomUUID().toString(),
-                    timestamp = System.currentTimeMillis(),
-                    direction = "sent",
-                    kind = "image",
-                    name = "clipboard image",
-                    size = png.size.toLong(),
-                    mime = "image/png",
-                )
+        TransferHistory.add(
+            TransferRecord(
+                id = UUID.randomUUID().toString(),
+                timestamp = System.currentTimeMillis(),
+                direction = "sent",
+                kind = "image",
+                name = "clipboard image",
+                size = png.size.toLong(),
+                mime = "image/png",
+                status = if (anySuccess) "ok" else "failed",
+                error = if (anySuccess) null else "no reachable device",
             )
-        }
+        )
         return if (anySuccess) SharingResult.SUCCESS else SharingResult.SENDING_ERROR
     }
 
@@ -522,8 +581,14 @@ class BluetoothService : Service() {
             return SharingResult.NO_SELECTED_DEVICES
         }
         if (size <= 0 || size > Bdip.MAX_FILE) return SharingResult.SENDING_ERROR
+        cancelOutbound = false
         var anySuccess = false
-        selectedDeviceAddresses.forEach { address ->
+        var cancelled = false
+        targets.forEach { address ->
+            if (cancelOutbound) {
+                cancelled = true
+                return@forEach
+            }
             val session = sessionOrDial(address) ?: return@forEach
             val stream = openStream()
             try {
@@ -534,14 +599,18 @@ class BluetoothService : Service() {
                     mime = mime,
                     chunks = ((size + Bdip.CHUNK_SIZE - 1) / Bdip.CHUNK_SIZE).toInt(),
                 )
-                if (size >= PROGRESS_NOTIFICATION_MIN_BYTES) {
-                    showTransferProgressNotification(this, "Sending $displayName", 0, size)
-                }
-                val sent = session.sendFile(
-                    meta,
-                    { _, count -> stream.readNBytesCompat(count) },
-                ) { done, total ->
-                    showTransferProgressNotification(this, "Sending $displayName", done, total)
+                showTransferProgressNotification(this, "Sending $displayName", 0, size)
+                val sent = try {
+                    session.sendFile(
+                        meta,
+                        { _, count -> stream.readNBytesCompat(count) },
+                    ) { done, total ->
+                        if (cancelOutbound) throw CancellationException("cancelled on this device")
+                        showTransferProgressNotification(this, "Sending $displayName", done, total)
+                    }
+                } catch (e: CancellationException) {
+                    cancelled = true
+                    -1L
                 }
                 cancelTransferProgressNotification(this)
                 anySuccess = sent > 0 || anySuccess
@@ -552,19 +621,23 @@ class BluetoothService : Service() {
                 }
             }
         }
-        if (anySuccess) {
-            TransferHistory.add(
-                TransferRecord(
-                    id = UUID.randomUUID().toString(),
-                    timestamp = System.currentTimeMillis(),
-                    direction = "sent",
-                    kind = "file",
-                    name = displayName,
-                    size = size,
-                    mime = mime,
-                )
+        TransferHistory.add(
+            TransferRecord(
+                id = UUID.randomUUID().toString(),
+                timestamp = System.currentTimeMillis(),
+                direction = "sent",
+                kind = "file",
+                name = displayName,
+                size = size,
+                mime = mime,
+                status = if (anySuccess) "ok" else "failed",
+                error = when {
+                    anySuccess -> null
+                    cancelled -> "cancelled"
+                    else -> "send failed"
+                },
             )
-        }
+        )
         return if (anySuccess) SharingResult.SUCCESS else SharingResult.SENDING_ERROR
     }
 

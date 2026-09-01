@@ -206,6 +206,7 @@
                     <RowDefinition Height="*" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
                 <!-- Header with Theme Toggle -->
@@ -406,14 +407,42 @@
                         Style="{StaticResource StopButtonStyle}" />
 
                     <Button
+                        x:Name="CancelTransferButton"
+                        Margin="0,0,10,0"
+                        Content="Cancel Transfer"
+                        IsEnabled="False"
+                        Style="{StaticResource StopButtonStyle}" />
+
+                    <Button
                         x:Name="HistoryButton"
                         Content="History"
                         Style="{StaticResource RefreshButtonStyle}" />
                 </StackPanel>
 
+                <!-- Type-to-send -->
+                <Grid Grid.Row="3" Margin="0,0,0,10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBox
+                        x:Name="TypedTextBox"
+                        Grid.Column="0"
+                        Height="30"
+                        VerticalContentAlignment="Center"
+                        KeyDown="TypedText_KeyDown" />
+                    <Button
+                        x:Name="SendTypedTextButton"
+                        Grid.Column="1"
+                        Margin="8,0,0,0"
+                        Content="Send text"
+                        Click="SendTypedTextButton_Click"
+                        Style="{StaticResource RefreshButtonStyle}" />
+                </Grid>
+
                 <!-- Status Bar -->
                 <Border
-                    Grid.Row="3"
+                    Grid.Row="4"
                     Padding="15,12"
                     Background="{Binding Source={x:Static services:ThemeManager.Instance}, Path=StatusBarBackground}"
                     CornerRadius="6">

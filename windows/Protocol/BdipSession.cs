@@ -276,10 +276,25 @@ public sealed class BdipSession : IDisposable
     public void SendFileAck(FileAck ack) =>
         _writeQueue.TryAdd(new Frame(Bdip.TypeFileAck, ack.Encode()).Encode());
 
-    /// <summary>Streams a file with stop-and-wait chunking (spec §3.4).</summary>
+    /// <summary>Streams a file with stop-and-wait chunking (spec §3.4).
+    /// Throwing OperationCanceledException from onProgress cancels the send:
+    /// the receiver is told via an error FILE_ACK (docs/PROTOCOL.md §3.4.1).</summary>
     public async Task<long> SendFileAsync(FileMeta meta, Func<long, int, byte[]?> readChunk, Action<long, long>? onProgress = null)
     {
         await SendAsync(new Frame(Bdip.TypeFileMeta, meta.Encode()));
+        try
+        {
+            return await SendFileLoopAsync(meta, readChunk, onProgress);
+        }
+        catch (OperationCanceledException)
+        {
+            SendFileAck(new FileAck { Id = meta.Id, Error = "cancelled by sender" });
+            throw;
+        }
+    }
+
+    private async Task<long> SendFileLoopAsync(FileMeta meta, Func<long, int, byte[]?> readChunk, Action<long, long>? onProgress)
+    {
         long offset = 0;
         uint index = 0;
         while (offset < meta.Size)
